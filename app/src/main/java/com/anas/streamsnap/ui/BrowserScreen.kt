@@ -559,9 +559,11 @@ private fun SiteTile(site: Site, modifier: Modifier, onClick: () -> Unit) {
                 loading = { SiteLetter(site) },
                 error = { SiteLetter(site) },
                 success = {
-                    Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
-                        SubcomposeAsyncImageContent(Modifier.size(34.dp))
-                    }
+                    // White tile with the real site icon in the middle (not nested in a Box: the
+                    // content call must be made directly on this scope).
+                    SubcomposeAsyncImageContent(
+                        modifier = Modifier.fillMaxSize().background(Color.White).padding(12.dp),
+                    )
                 },
             )
         }
