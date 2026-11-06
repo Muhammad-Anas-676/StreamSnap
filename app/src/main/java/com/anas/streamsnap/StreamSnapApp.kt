@@ -16,6 +16,9 @@ class StreamSnapApp : Application() {
         QueueManager.init(this)
         LogStore.i("app", "StreamSnap started")
         // Python + ffmpeg are unpacked on the first start, so do it off the main thread.
-        Thread({ Engine.ensureInit(this) }, "engine-init").start()
+        // After that, an old engine (3+ weeks) is updated quietly: sites like YouTube change often.
+        Thread({
+            if (Engine.ensureInit(this)) Engine.autoUpdateIfOld(this)
+        }, "engine-init").start()
     }
 }

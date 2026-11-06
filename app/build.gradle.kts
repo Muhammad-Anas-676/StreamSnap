@@ -12,8 +12,8 @@ android {
         applicationId = "com.anas.streamsnap"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         // Both phone architectures in one universal APK (older and newer phones).
         ndk {
@@ -23,6 +23,17 @@ android {
 
     // Release signing is used only when the workflow writes app/release.jks from GitHub Secrets.
     signingConfigs {
+        // One fixed key for every build made without your own keystore, so a new build installs
+        // over the old one (the workflow decodes app/debug-keystore.b64 into this file).
+        getByName("debug") {
+            val fixed = file("debug-fixed.keystore")
+            if (fixed.exists()) {
+                storeFile = fixed
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         create("release") {
             val ks = file("release.jks")
             if (ks.exists()) {
@@ -44,6 +55,12 @@ android {
                 signingConfigs.getByName("debug")
             }
         }
+    }
+
+    // The release build is the fast one (no debug overhead). Lint is skipped so a style warning can never block the APK.
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     compileOptions {

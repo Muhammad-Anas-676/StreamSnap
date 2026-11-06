@@ -54,14 +54,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import coil.compose.AsyncImage
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import com.anas.streamsnap.data.DownloadItem
 import com.anas.streamsnap.data.Prefs
 import com.anas.streamsnap.data.Status
+import com.anas.streamsnap.data.Tr
 import com.anas.streamsnap.data.chipQualitiesFor
 import com.anas.streamsnap.data.qualityLabel
 import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.engine.QueueManager
+import com.anas.streamsnap.util.HintAction
+import com.anas.streamsnap.util.Hints
 import com.anas.streamsnap.util.Utils
+
+/** The Compose context is the Activity (possibly wrapped); this finds it to ask for a tab switch. */
+private fun Context.findMainActivity(): MainActivity? {
+    var c: Context? = this
+    while (c is ContextWrapper) {
+        if (c is MainActivity) return c
+        c = c.baseContext
+    }
+    return null
+}
 
 /** What a left-to-right swipe (or the main round button) does for this state. */
 fun primaryAction(item: DownloadItem) {
@@ -132,6 +149,7 @@ fun SwipeQueueCard(
 
 @Composable
 fun QueueCard(item: DownloadItem, prefs: Prefs, dragging: Boolean, handle: Modifier, onOpenLog: () -> Unit) {
+    val ctx = LocalContext.current
     val progress by animateFloatAsState(item.progress, tween(450), label = "progress")
     val perVideo = prefs.qualityMode == "ask"
     val autoPick = prefs.autoStart && perVideo && item.status == Status.READY
@@ -178,6 +196,34 @@ fun QueueCard(item: DownloadItem, prefs: Prefs, dragging: Boolean, handle: Modif
             if (item.status == Status.FAILED && item.error.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
                 Text(item.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                val hint = remember(item.error, item.url, Tr.lang) { Hints.forError(item.error, item.url) }
+                if (hint != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)).padding(10.dp),
+                    ) {
+                        Text(
+                            hint.text, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                        if (hint.action != null) {
+                            val act = hint.action
+                            TextButton(
+                                onClick = {
+                                    ctx.findMainActivity()?.navRequest?.value =
+                                        if (act == HintAction.BROWSER) "browser" else "settings"
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                            ) {
+                                Text(
+                                    if (act == HintAction.BROWSER) tr("Open Browser", "براؤزر کھولیں")
+                                    else tr("Open Settings", "سیٹنگز کھولیں"),
+                                )
+                            }
+                        }
+                    }
+                }
                 TextButton(onClick = onOpenLog) { Text(tr("View exact error in Log", "لاگ میں درست ایرر دیکھیں")) }
             }
         }
@@ -190,7 +236,10 @@ private fun StatusLine(item: DownloadItem, autoPick: Boolean, prefs: Prefs) {
     val color: Color
     when {
         item.status == Status.DOWNLOADING -> {
-            text = buildString {
+            text = if (item.progress <= 0f && item.speedText.isBlank()) {
+                // The engine is still reading the page / solving the site's checks: no bytes yet.
+                tr("Preparing… (can take a minute)", "تیاری ہو رہی ہے… (ایک منٹ لگ سکتا ہے)")
+            } else buildString {
                 append("${(item.progress * 100).toInt()}%")
                 if (item.speedText.isNotBlank()) append(" · ").append(item.speedText)
                 if (item.etaSec >= 0) append(" · ETA ").append(Utils.fmtEta(item.etaSec))
