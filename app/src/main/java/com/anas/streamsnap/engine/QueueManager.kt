@@ -626,10 +626,14 @@ object QueueManager {
         }
     }
 
+    private var lossJob: Job? = null
+
     /** Called on every network change and after Settings (Wi-Fi only, parallel...) change. */
     fun recheck() {
         val allowed = networkAllowed()
         if (allowed) {
+            lossJob?.cancel()
+            lossJob = null
             val resumed = items.value.any { it.status == Status.WAITING && it.waitReason != tr("Low storage", "اسٹوریج کم ہے") }
             if (resumed) {
                 changeAll {
@@ -642,6 +646,19 @@ object QueueManager {
             lastAllowed = true
             afterStateChange()
         } else {
+            // Connecting / switching a VPN makes the network disappear for a second or two.
+            // Wait a little and only react if the connection is really gone.
+            if (lossJob?.isActive == true) return
+            lossJob = scope.launch {
+                delay(4000)
+                lossJob = null
+                if (networkAllowed()) recheck() else handleNetworkLost()
+            }
+        }
+    }
+
+    private fun handleNetworkLost() {
+        run {
             val reason = networkReason()
             val active = items.value.filter { it.status == Status.DOWNLOADING }
             active.forEach { actions[it.id] = "wait:$reason"; Engine.cancel(it.id) }

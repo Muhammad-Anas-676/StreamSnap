@@ -68,7 +68,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -241,6 +243,19 @@ fun MainScaffold(activity: MainActivity) {
     val nav by activity.navRequest.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val pending by QueueManager.pendingPlaylists.collectAsState()
+
+    // The keyboard must open only when the user taps a text field. Compose can hand focus to the first
+    // text field of a screen by itself, so on every tab change / return to the app focus is dropped.
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val resumes by activity.resumeTick.collectAsState()
+    LaunchedEffect(tab, resumes) {
+        for (wait in longArrayOf(0L, 120L, 180L)) {
+            delay(wait)
+            focusManager.clearFocus(true)
+            keyboard?.hide()
+        }
+    }
 
     LaunchedEffect(nav) {
         nav?.let {

@@ -3,7 +3,7 @@
 **Capture any stream, instantly.**
 
 Native Android (Kotlin, Jetpack Compose, Material 3) video downloader for personal use.
-Paste many links, every link gets a preview card, downloads run one by one with the yt-dlp engine
+Paste many links, every link gets a preview card, downloads run through the yt-dlp engine (1 to 3 at a time, Settings)
 ([youtubedl-android](https://github.com/yausername/youtubedl-android)). No backend, no API keys.
 
 ## Build

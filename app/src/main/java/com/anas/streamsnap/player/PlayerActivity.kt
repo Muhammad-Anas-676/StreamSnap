@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings as AndroidSettings
 import android.util.Rational
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -211,6 +212,7 @@ class PlayerActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideBars()
+        watchBars()
 
         val p = ExoPlayer.Builder(this).build()
         player = p
@@ -291,10 +293,40 @@ class PlayerActivity : ComponentActivity() {
         if (isInPictureInPictureMode) { sheet = null; controlsVisible = false }
     }
 
+    /** Full screen: no status bar (clock, battery, Wi-Fi) and no navigation buttons. */
+    @Suppress("DEPRECATION")
     private fun hideBars() {
-        val c = WindowInsetsControllerCompat(window, window.decorView)
-        c.hide(WindowInsetsCompat.Type.systemBars())
-        c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (Build.VERSION.SDK_INT >= 30) {
+            val c = WindowInsetsControllerCompat(window, window.decorView)
+            c.hide(WindowInsetsCompat.Type.systemBars())
+            c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            // Older Android: set the immersive flags directly so they cannot be lost.
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        }
+    }
+
+    /** If the bars come back (edge swipe, dialog, sheet), hide them again after a moment. */
+    @Suppress("DEPRECATION")
+    private fun watchBars() {
+        if (Build.VERSION.SDK_INT >= 30) return // the controller's transient behaviour handles this
+        window.decorView.setOnSystemUiVisibilityChangeListener { vis ->
+            if (vis and View.SYSTEM_UI_FLAG_FULLSCREEN == 0 && !isInPictureInPictureMode) {
+                window.decorView.postDelayed({ hideBars() }, 700)
+            }
+        }
+    }
+
+    // Dialogs and bottom sheets take the window focus and bring the bars back: hide them again.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideBars()
     }
 
     // ============================================================================ loading

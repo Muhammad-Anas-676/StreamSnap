@@ -102,11 +102,19 @@ object Utils {
     } catch (e: Exception) { 0L }
 
     // ---------- Network ----------
+    @Suppress("DEPRECATION")
     fun isOnline(ctx: Context): Boolean {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val n = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(n) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val n = cm.activeNetwork
+        val caps = if (n != null) cm.getNetworkCapabilities(n) else null
+        if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return true
+        // While a VPN connects / reconnects the "active" network can be empty for a moment even though
+        // Wi-Fi or mobile data still works. Look at every network before saying "No internet".
+        return try {
+            cm.allNetworks.any { net ->
+                cm.getNetworkCapabilities(net)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            }
+        } catch (_: Throwable) { false }
     }
 
     fun isWifi(ctx: Context): Boolean {
