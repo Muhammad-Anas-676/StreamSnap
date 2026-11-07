@@ -124,10 +124,11 @@ object Engine {
         val fast: Boolean = false,
     )
 
-    // YouTube "fast mode": this player client needs no JavaScript solving, which is what takes minutes on a phone.
+    // YouTube "fast mode": the visionos player client needs no JavaScript solving and no PO token, which is what
+    // takes minutes on a phone (up to 1080p). The older android_vr client lists formats but YouTube answers 403 when downloading them.
     private fun ytFastPlan() = Plan(
         "fast YouTube (no JavaScript)",
-        listOf("--extractor-args" to "youtube:player_client=android_vr"),
+        listOf("--extractor-args" to "youtube:player_client=visionos"),
         fast = true,
     )
 

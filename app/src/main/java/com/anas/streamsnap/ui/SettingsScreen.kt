@@ -374,8 +374,8 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
         SwitchRow(
             tr("YouTube fast mode", "یوٹیوب فاسٹ موڈ"),
             tr(
-                "On: YouTube links are read in under a minute using the quick route. Some videos may show fewer qualities. Off: slow (several minutes on this phone) but the full quality list.",
-                "آن: یوٹیوب لنک ایک منٹ کے اندر پڑھا جاتا ہے، کچھ ویڈیوز میں کوالٹیاں کم ہو سکتی ہیں۔ آف: سست (کئی منٹ) مگر مکمل کوالٹی لسٹ۔",
+                "On: YouTube links use the quick route (about a minute, qualities up to 1080p). Off: slow (several minutes on this phone) but the full quality list. If the quick route fails, the slow one is used automatically.",
+                "آن: یوٹیوب لنک تیز راستے سے چلتے ہیں (تقریباً ایک منٹ، 1080p تک کوالٹی)۔ آف: سست (کئی منٹ) مگر مکمل کوالٹی لسٹ۔ تیز راستہ ناکام ہو تو سست راستہ خود چلتا ہے۔",
             ),
             prefs.ytFast,
         ) { v -> Settings.update { it.copy(ytFast = v) } }
