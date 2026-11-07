@@ -32,8 +32,6 @@ class MainActivity : AppCompatActivity() {
     val navRequest = MutableStateFlow<String?>(null)
     /** Text of a link found in the clipboard that the user has not acted on yet. */
     val clipLink = MutableStateFlow<String?>(null)
-    /** Goes up on every onResume; the UI uses it to drop text focus so the keyboard never pops up by itself. */
-    val resumeTick = MutableStateFlow(0)
 
     private var backgroundedAt = 0L
     private var lastClip = ""
@@ -79,11 +77,6 @@ class MainActivity : AppCompatActivity() {
     private fun applySecure(on: Boolean) {
         if (on) window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        resumeTick.value = resumeTick.value + 1
     }
 
     override fun onStart() {

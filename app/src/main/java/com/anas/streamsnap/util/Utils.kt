@@ -102,19 +102,55 @@ object Utils {
     } catch (e: Exception) { 0L }
 
     // ---------- Network ----------
+    /**
+     * True when the phone has any usable connection. Deliberately forgiving: with a VPN the "active"
+     * network can be the VPN itself (or briefly nothing while it reconnects), and some VPN apps do not
+     * report the internet capability the normal way. The real request will fail by itself if there is
+     * truly no internet, so a wrong "offline" here (which would block downloads) is worse than a wrong "online".
+     */
     @Suppress("DEPRECATION")
     fun isOnline(ctx: Context): Boolean {
-        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val n = cm.activeNetwork
-        val caps = if (n != null) cm.getNetworkCapabilities(n) else null
-        if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return true
-        // While a VPN connects / reconnects the "active" network can be empty for a moment even though
-        // Wi-Fi or mobile data still works. Look at every network before saying "No internet".
         return try {
-            cm.allNetworks.any { net ->
-                cm.getNetworkCapabilities(net)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val n = cm.activeNetwork
+            val caps = if (n != null) cm.getNetworkCapabilities(n) else null
+            if (caps != null && (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+            ) return true
+            // Any other network that can reach the internet (also covers a VPN that is switching).
+            for (other in cm.allNetworks) {
+                val c = cm.getNetworkCapabilities(other) ?: continue
+                if (c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                    c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                ) return true
             }
-        } catch (_: Throwable) { false }
+            // Old-style check as the last word.
+            cm.activeNetworkInfo?.isConnected == true
+        } catch (_: Throwable) {
+            true // cannot tell: let the real request decide
+        }
+    }
+
+    /** One line describing every network, for the log (helps when "No internet" shows up wrongly). */
+    @Suppress("DEPRECATION")
+    fun netDebug(ctx: Context): String = try {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val active = cm.activeNetwork
+        val parts = cm.allNetworks.map { net ->
+            val c = cm.getNetworkCapabilities(net)
+            val t = buildList {
+                if (c?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) add("wifi")
+                if (c?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) add("cell")
+                if (c?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) add("vpn")
+                if (c?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true) add("eth")
+            }.joinToString("+").ifEmpty { "?" }
+            val internet = c?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            val valid = c?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+            "$t" + (if (net == active) "*" else "") + "[internet=$internet,validated=$valid]"
+        }
+        "networks: " + (if (parts.isEmpty()) "none" else parts.joinToString(" "))
+    } catch (t: Throwable) {
+        "networks: unreadable (${t.javaClass.simpleName})"
     }
 
     fun isWifi(ctx: Context): Boolean {

@@ -595,7 +595,7 @@ object QueueManager {
         val item = get(id) ?: return
         if (!Utils.isOnline(app)) {
             change(id) { it.copy(status = Status.WAITING, waitReason = tr("No internet", "انٹرنیٹ نہیں"), speedText = "", etaSec = -1) }
-            LogStore.w("download", "Interrupted, no internet: ${item.displayTitle}", item.url, detail = o.raw)
+            LogStore.w("download", "Interrupted, no internet: ${item.displayTitle}", item.url, detail = Utils.netDebug(app) + "\n\n" + o.raw)
             return
         }
         change(id) { it.copy(status = Status.FAILED, error = o.message, speedText = "", etaSec = -1) }
@@ -626,14 +626,10 @@ object QueueManager {
         }
     }
 
-    private var lossJob: Job? = null
-
     /** Called on every network change and after Settings (Wi-Fi only, parallel...) change. */
     fun recheck() {
         val allowed = networkAllowed()
         if (allowed) {
-            lossJob?.cancel()
-            lossJob = null
             val resumed = items.value.any { it.status == Status.WAITING && it.waitReason != tr("Low storage", "اسٹوریج کم ہے") }
             if (resumed) {
                 changeAll {
@@ -646,25 +642,12 @@ object QueueManager {
             lastAllowed = true
             afterStateChange()
         } else {
-            // Connecting / switching a VPN makes the network disappear for a second or two.
-            // Wait a little and only react if the connection is really gone.
-            if (lossJob?.isActive == true) return
-            lossJob = scope.launch {
-                delay(4000)
-                lossJob = null
-                if (networkAllowed()) recheck() else handleNetworkLost()
-            }
-        }
-    }
-
-    private fun handleNetworkLost() {
-        run {
             val reason = networkReason()
             val active = items.value.filter { it.status == Status.DOWNLOADING }
             active.forEach { actions[it.id] = "wait:$reason"; Engine.cancel(it.id) }
             val had = active.isNotEmpty() || items.value.any { it.status == Status.QUEUED }
             if (lastAllowed && had) {
-                LogStore.w("network", reason)
+                LogStore.w("network", reason, detail = Utils.netDebug(app))
                 Notifier.networkLost(app, reason)
             }
             lastAllowed = false

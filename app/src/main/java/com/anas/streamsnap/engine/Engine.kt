@@ -4,7 +4,6 @@ import android.content.Context
 import com.anas.streamsnap.data.DownloadItem
 import com.anas.streamsnap.data.Prefs
 import com.anas.streamsnap.data.Settings
-import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.service.Notifier
 import com.anas.streamsnap.util.LogStore
 import com.anas.streamsnap.util.Utils
@@ -17,7 +16,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import java.io.File
 import java.lang.reflect.InvocationTargetException
-import java.security.MessageDigest
 import java.util.GregorianCalendar
 import java.util.concurrent.ConcurrentHashMap
 
@@ -92,18 +90,13 @@ object Engine {
             }
             ready = true
             _state.value = "ready"
-        }
-        // Probing the version starts a second yt-dlp process (slow on old phones). It must NOT run
-        // inside the init lock, otherwise the first link the user pastes waits for it.
-        val app = ctx.applicationContext
-        Thread({
             val v = versionString()
             LogStore.engineVersion = v
             LogStore.i("engine", "Engine ready (yt-dlp $v)")
-            LogStore.i("engine", "JS runtime for YouTube: ${qjsPath(app) ?: "not found (engine will use its own)"}")
-            purgeOldInfo(app)
-        }, "engine-version").start()
-        return true
+            LogStore.i("engine", "JS runtime for YouTube: ${qjsPath(ctx) ?: "not found (engine will use its own)"}")
+            cleanOldInfo(ctx)
+            return true
+        }
     }
 
     fun versionString(): String = try {
@@ -122,7 +115,37 @@ object Engine {
     }
 
     // ---------------------------------------------------------------- retry plans
-    private class Plan(val label: String, val extra: List<Pair<String, String?>>, val info: File? = null)
+    private class Plan(
+        val label: String,
+        val extra: List<Pair<String, String?>>,
+        /** Download from the page info already read when the link was pasted (skips the slow second extraction). */
+        val useInfo: Boolean = false,
+    )
+
+    // ---------------------------------------------------------------- saved page info
+    private const val INFO_MAX_AGE_MS = 3L * 3600 * 1000
+
+    private fun infoFile(ctx: Context, url: String): File {
+        val h = java.security.MessageDigest.getInstance("SHA-1").digest(url.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val dir = File(ctx.cacheDir, "info")
+        dir.mkdirs()
+        return File(dir, h.take(20) + ".json")
+    }
+
+    /** The info file for this link when it is still fresh (video links expire after a few hours). */
+    private fun freshInfoFile(ctx: Context, url: String): File? {
+        val f = infoFile(ctx, url)
+        return if (f.exists() && f.length() > 0 && System.currentTimeMillis() - f.lastModified() < INFO_MAX_AGE_MS) f else null
+    }
+
+    private fun cleanOldInfo(ctx: Context) {
+        try {
+            File(ctx.cacheDir, "info").listFiles()?.forEach {
+                if (System.currentTimeMillis() - it.lastModified() > 6L * 3600 * 1000) it.delete()
+            }
+        } catch (_: Throwable) { }
+    }
 
     private fun YoutubeDLRequest.addAll(extra: List<Pair<String, String?>>) {
         for ((k, v) in extra) {
@@ -151,13 +174,6 @@ object Engine {
     // YouTube refusing the video data (SABR / 403 / missing formats): other player clients may work.
     private val ytBlockRx = Regex(
         "403|sabr|requested format is not available|unable to download video data|http error 4\\d\\d|po token",
-        RegexOption.IGNORE_CASE,
-    )
-
-    // "Connection reset by peer" / DNS failure on every try usually means the provider blocks the site.
-    private val resetRx = Regex("connection reset by peer|errno 104", RegexOption.IGNORE_CASE)
-    private val blockedHintRx = Regex(
-        "connection reset by peer|errno 104|name or service not known|nodename nor servname|errno -2\\b|errno -3\\b",
         RegexOption.IGNORE_CASE,
     )
 
@@ -202,7 +218,6 @@ object Engine {
         if (extrasBroken || !isYoutube(url)) return emptyList()
         val out = ArrayList<Pair<String, String?>>()
         out.add("--remote-components" to "ejs:github")
-        out.add("--extractor-args" to "youtube:skip=translated_subs") // less work, faster info
         qjsPath(ctx)?.let { out.add("--js-runtimes" to "quickjs:$it") }
         return out
     }
@@ -273,8 +288,6 @@ object Engine {
                 }
                 attempts.add("${idx + 1}) ${plan.label}: ${shortMessage(msg)}")
                 if (idx == plans.size - 1 || !shouldRetry(msg, yt, false)) break
-                // Same "reset" twice = the site is blocked, a third (verbose) try only wastes time.
-                if (idx >= 1 && resetRx.containsMatchIn(msg)) break
                 LogStore.w("fetch", "Trying again (${plans[idx + 1].label})", url, shortMessage(msg))
                 idx++
             }
@@ -289,13 +302,16 @@ object Engine {
         if (plan.extra.none { it.first == "--verbose" }) req.addOption("--no-warnings")
         req.addOption("--playlist-end", "500")
         if (urlHasVideoAndList(url)) req.addOption("--no-playlist")
-        applyCommon(ctx, req, Settings.value, url, fetch = true)
+        // The preview only needs the normal subtitle list: skipping the translated ones makes YouTube much faster.
+        if (isYoutube(url)) req.addOption("--extractor-args", "youtube:skip=translated_subs")
+        applyCommon(ctx, req, Settings.value, url)
         req.addAll(plan.extra)
 
         val out = YoutubeDL.getInstance().execute(req).out
         val start = out.indexOf('{')
         if (start < 0) return FetchResult.Error("No information returned for this link", out)
-        val o = JSONObject(out.substring(start))
+        val json = out.substring(start)
+        val o = JSONObject(json)
 
         return if (o.optString("_type") == "playlist" && o.optJSONArray("entries") != null) {
             val arr = o.getJSONArray("entries")
@@ -307,49 +323,12 @@ object Engine {
             }
             FetchResult.Playlist(o.optString("title", "Playlist"), list)
         } else {
-            saveInfo(ctx, url, out.substring(start), o)
+            // Keep what was read, so the download can start at once instead of reading the page again.
+            try {
+                if (json.length < 8_000_000) infoFile(ctx, url).writeText(json)
+            } catch (_: Throwable) { }
             FetchResult.Single(parseVideo(o, o.optString("webpage_url", url).ifBlank { url }))
         }
-    }
-
-    // ---------------------------------------------------------------- info cache
-    // The preview card already made yt-dlp extract the video once. The download reuses that result
-    // (--load-info-json) instead of extracting the same page a second time: much faster and it
-    // sends fewer requests to the site. If the saved info is too old or fails, the normal path runs.
-    private const val INFO_MAX_AGE_MS = 20L * 60 * 1000
-
-    private fun infoFile(ctx: Context, url: String): File {
-        val dir = File(ctx.cacheDir, "info")
-        if (!dir.exists()) dir.mkdirs()
-        val h = MessageDigest.getInstance("SHA-1").digest(Utils.normalizeUrl(url).toByteArray())
-            .joinToString("") { "%02x".format(it) }
-        return File(dir, "$h.json")
-    }
-
-    private fun saveInfo(ctx: Context, url: String, json: String, o: JSONObject) {
-        try {
-            val type = o.optString("_type", "video")
-            val formats = o.optJSONArray("formats")
-            if (type != "video" || formats == null || formats.length() == 0) return // incomplete info: do not reuse
-            if (json.length > 4_000_000) return
-            infoFile(ctx, url).writeText(json)
-        } catch (_: Throwable) { }
-    }
-
-    private fun freshInfo(ctx: Context, url: String): File? = try {
-        val f = infoFile(ctx, url)
-        if (f.exists() && f.length() > 0 && System.currentTimeMillis() - f.lastModified() < INFO_MAX_AGE_MS) f else null
-    } catch (_: Throwable) { null }
-
-    fun clearInfo(ctx: Context, url: String) {
-        try { infoFile(ctx, url).delete() } catch (_: Throwable) { }
-    }
-
-    private fun purgeOldInfo(ctx: Context) {
-        try {
-            val limit = System.currentTimeMillis() - 6L * 3600 * 1000
-            File(ctx.cacheDir, "info").listFiles()?.forEach { if (it.lastModified() < limit) it.delete() }
-        } catch (_: Throwable) { }
     }
 
     private fun entryUrl(e: JSONObject): String? {
@@ -447,9 +426,10 @@ object Engine {
                 Plan("IPv4 + legacy TLS", listOf("--force-ipv4" to null, "--legacy-server-connect" to null)),
             )
         }
-
-        val cached = freshInfo(ctx, item.url)
-        val plans = if (cached != null) listOf(Plan("saved info", emptyList(), cached)) + basePlans else basePlans
+        // First try the page info that was already read when the link was pasted (much faster to start).
+        val plans = if (freshInfoFile(ctx, item.url) != null) {
+            listOf(Plan("saved page info", emptyList(), useInfo = true)) + basePlans
+        } else basePlans
 
         val attempts = ArrayList<String>()
         var firstRaw = ""
@@ -460,11 +440,20 @@ object Engine {
         while (idx < plans.size) {
             val plan = plans[idx]
             try {
-                val res = downloadOnce(ctx, item, p, dir, plan, startedAt, onProgress)
-                clearInfo(ctx, item.url)
-                return res
+                val outcome = downloadOnce(ctx, item, p, dir, plan, startedAt, onProgress)
+                if (plan.useInfo || outcome.ok) {
+                    try { infoFile(ctx, item.url).delete() } catch (_: Throwable) { }
+                }
+                return outcome
             } catch (t: Throwable) {
                 val msg = t.message ?: t.toString()
+                if (plan.useInfo && !cancelled.contains(item.id)) {
+                    // Not an error for the user: just read the page the normal way.
+                    LogStore.w("download", "Saved page info did not work; reading the page again", item.url, shortMessage(msg))
+                    try { infoFile(ctx, item.url).delete() } catch (_: Throwable) { }
+                    idx++
+                    continue
+                }
                 if (firstRaw.isEmpty()) firstRaw = msg
                 lastRaw = msg
                 stack = LogStore.stack(t)
@@ -476,14 +465,6 @@ object Engine {
                     continue
                 }
                 attempts.add("${idx + 1}) ${plan.label}: ${shortMessage(msg)}")
-                if (plan.info != null) {
-                    // Saved info is stale or rejected: forget it and extract the page again.
-                    clearInfo(ctx, item.url)
-                    LogStore.w("download", "Saved info did not work, extracting again", item.url, shortMessage(msg))
-                    firstRaw = ""; lastRaw = ""; attempts.clear()
-                    idx++
-                    continue
-                }
                 if (idx == plans.size - 1 || !shouldRetry(msg, yt, true)) break
                 LogStore.w("download", "Trying again (${plans[idx + 1].label})", item.url, shortMessage(msg))
                 idx++
@@ -502,9 +483,11 @@ object Engine {
         onProgress: (percent: Float, etaSec: Long, line: String) -> Unit,
     ): DownloadOutcome {
         var finalPath: String? = null
-        val req = if (plan.info != null) {
-            YoutubeDLRequest(emptyList<String>()).also { it.addOption("--load-info-json", plan.info.absolutePath) }
-        } else YoutubeDLRequest(item.url)
+        val saved = if (plan.useInfo) freshInfoFile(ctx, item.url) else null
+        if (plan.useInfo && saved == null) throw IllegalStateException("No saved page info for this link")
+        // With saved info the engine skips the slow page reading and starts downloading straight away.
+        val req = if (saved != null) YoutubeDLRequest(emptyList<String>()) else YoutubeDLRequest(item.url)
+        if (saved != null) req.addOption("--load-info-json", saved.absolutePath)
         req.addOption("--no-playlist")
         req.addOption("--no-mtime")
         req.addOption("-N", "4")
@@ -560,15 +543,15 @@ object Engine {
     }
 
     // ---------------------------------------------------------------- options
-    private fun applyCommon(ctx: Context, req: YoutubeDLRequest, p: Prefs, url: String, fetch: Boolean = false) {
-        // A fixed cache folder lets yt-dlp keep YouTube player/solver data between runs (faster 2nd link).
+    private fun applyCommon(ctx: Context, req: YoutubeDLRequest, p: Prefs, url: String) {
+        req.addOption("--socket-timeout", "30")
+        req.addOption("--retries", "10")
+        // A fixed cache folder lets the engine keep what it worked out (YouTube player scripts etc.) between runs.
         try {
-            val cd = File(ctx.cacheDir, "yt-dlp-cache")
-            if (!cd.exists()) cd.mkdirs()
+            val cd = File(ctx.cacheDir, "yt-dlp")
+            cd.mkdirs()
             req.addOption("--cache-dir", cd.absolutePath)
         } catch (_: Throwable) { }
-        req.addOption("--socket-timeout", if (fetch) "20" else "30")
-        req.addOption("--retries", "10")
         if (p.proxy.isNotBlank()) req.addOption("--proxy", p.proxy.trim())
         if (p.useCookies) {
             val c = cookieFile(ctx)
@@ -686,9 +669,7 @@ object Engine {
     fun autoUpdateIfOld(ctx: Context) {
         try {
             if (!ensureInit(ctx)) return
-            var ver = LogStore.engineVersion
-            if (ver == "?") { ver = versionString(); LogStore.engineVersion = ver }
-            val age = versionAgeDays(ver) ?: return
+            val age = versionAgeDays(LogStore.engineVersion) ?: return
             if (age < 21) return
             val p = Settings.value
             val now = System.currentTimeMillis()
@@ -719,12 +700,6 @@ object Engine {
     fun shortMessage(raw: String): String {
         val lines = raw.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val err = lines.lastOrNull { it.startsWith("ERROR:") } ?: lines.firstOrNull() ?: raw
-        val base = err.removePrefix("ERROR:").trim().take(220)
-        return if (blockedHintRx.containsMatchIn(err)) {
-            base + "\n" + tr(
-                "The site may be blocked by your internet provider. Turn on a VPN and retry.",
-                "ہو سکتا ہے آپ کا انٹرنیٹ پروائیڈر یہ سائٹ بلاک کر رہا ہو۔ VPN آن کر کے دوبارہ کوشش کریں۔",
-            )
-        } else base
+        return err.removePrefix("ERROR:").trim().take(220)
     }
 }

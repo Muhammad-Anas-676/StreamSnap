@@ -60,6 +60,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -244,19 +245,6 @@ fun MainScaffold(activity: MainActivity) {
     val snackbar = remember { SnackbarHostState() }
     val pending by QueueManager.pendingPlaylists.collectAsState()
 
-    // The keyboard must open only when the user taps a text field. Compose can hand focus to the first
-    // text field of a screen by itself, so on every tab change / return to the app focus is dropped.
-    val focusManager = LocalFocusManager.current
-    val keyboard = LocalSoftwareKeyboardController.current
-    val resumes by activity.resumeTick.collectAsState()
-    LaunchedEffect(tab, resumes) {
-        for (wait in longArrayOf(0L, 120L, 180L)) {
-            delay(wait)
-            focusManager.clearFocus(true)
-            keyboard?.hide()
-        }
-    }
-
     LaunchedEffect(nav) {
         nav?.let {
             tab = when (it) { "history" -> 1; "browser" -> 2; "logs" -> 3; "settings" -> 4; else -> 0 }
@@ -265,6 +253,21 @@ fun MainScaffold(activity: MainActivity) {
     }
     LaunchedEffect(Unit) {
         QueueManager.events.collect { snackbar.showSnackbar(it) }
+    }
+
+    // The keyboard must open only when a text field is tapped. A screen that is just opened must not
+    // grab the focus (and with it the keyboard), so for a moment after each tab change the focus is cleared.
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(tab) {
+        repeat(10) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+            withFrameNanos { }
+        }
+        delay(250)
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
     }
 
     Scaffold(
