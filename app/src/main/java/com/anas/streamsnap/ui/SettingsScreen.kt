@@ -371,6 +371,15 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
             QueueManager.recheck()
         }
         HorizontalDivider()
+        SwitchRow(
+            tr("YouTube fast mode", "یوٹیوب فاسٹ موڈ"),
+            tr(
+                "On: YouTube links are read in under a minute using the quick route. Some videos may show fewer qualities. Off: slow (several minutes on this phone) but the full quality list.",
+                "آن: یوٹیوب لنک ایک منٹ کے اندر پڑھا جاتا ہے، کچھ ویڈیوز میں کوالٹیاں کم ہو سکتی ہیں۔ آف: سست (کئی منٹ) مگر مکمل کوالٹی لسٹ۔",
+            ),
+            prefs.ytFast,
+        ) { v -> Settings.update { it.copy(ytFast = v) } }
+        HorizontalDivider()
         ClickRow(tr("Speed limit", "اسپیڈ لمٹ"), trailing = fmtSpeed(prefs.speedLimitKb)) { dlg = "speed" }
         HorizontalDivider()
         ClickRow(

@@ -4,9 +4,12 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -56,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.anas.streamsnap.R
+import com.anas.streamsnap.data.DownloadItem
 import com.anas.streamsnap.data.QUALITY_OPTIONS
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.Status
@@ -82,8 +87,11 @@ fun HomeScreen(activity: MainActivity) {
     val prefs by Settings.state.collectAsState()
     val clip by activity.clipLink.collectAsState()
     val queue = remember(all) { all.filter { it.status != Status.DONE } }
+    val done = remember(all) { all.filter { it.status == Status.DONE }.sortedByDescending { it.finishedAt } }
 
     var input by rememberSaveable { mutableStateOf("") }
+    var section by rememberSaveable { mutableStateOf(0) } // 0 = Downloading, 1 = Downloaded
+    var confirmDelete by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     var draggingId by remember { mutableStateOf<String?>(null) }
@@ -91,7 +99,10 @@ fun HomeScreen(activity: MainActivity) {
 
     fun submit(text: String) {
         val r = QueueManager.addLinks(text)
-        if (!r.noLinks) input = ""
+        if (!r.noLinks) {
+            input = ""
+            section = 0 // show the new link in Downloading
+        }
         Toast.makeText(ctx, addResultMessage(r), Toast.LENGTH_SHORT).show()
     }
 
@@ -147,6 +158,7 @@ fun HomeScreen(activity: MainActivity) {
                         modifier = Modifier.animateItem(),
                         onAdd = {
                             val r = QueueManager.addLinks(c)
+                            section = 0
                             activity.dismissClip()
                             Toast.makeText(ctx, addResultMessage(r), Toast.LENGTH_SHORT).show()
                         },
@@ -155,40 +167,76 @@ fun HomeScreen(activity: MainActivity) {
                 }
             }
 
-            if (queue.isNotEmpty()) {
-                item(key = "controls") { ControlsRow(queue.map { it.status }, onClear = { confirmClear = true }) }
+            item(key = "sections") {
+                SectionSwitch(
+                    selected = section,
+                    left = tr("Downloading (${queue.size})", "ڈاؤن لوڈ ہو رہی (${queue.size})"),
+                    right = tr("Downloaded (${done.size})", "ڈاؤن لوڈ شدہ (${done.size})"),
+                    onSelect = { section = it },
+                )
             }
 
-            if (queue.isEmpty()) {
-                item(key = "empty") { EmptyState(prefs.autoStart) }
-            }
+            if (section == 0) {
+                if (queue.isNotEmpty()) {
+                    item(key = "controls") { ControlsRow(queue.map { it.status }, onClear = { confirmClear = true }) }
+                }
 
-            items(queue, key = { it.id }) { item ->
-                val dragging = draggingId == item.id
-                val handle = Modifier.pointerInput(item.id) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { draggingId = item.id; dragOffset = 0f },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            dragOffset += amount.y
-                            reorder()
-                        },
-                        onDragEnd = { draggingId = null; dragOffset = 0f },
-                        onDragCancel = { draggingId = null; dragOffset = 0f },
+                if (queue.isEmpty()) {
+                    item(key = "empty") { EmptyState(prefs.autoStart) }
+                }
+
+                items(queue, key = { it.id }) { item ->
+                    val dragging = draggingId == item.id
+                    val handle = Modifier.pointerInput(item.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { draggingId = item.id; dragOffset = 0f },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                dragOffset += amount.y
+                                reorder()
+                            },
+                            onDragEnd = { draggingId = null; dragOffset = 0f },
+                            onDragCancel = { draggingId = null; dragOffset = 0f },
+                        )
+                    }
+                    SwipeQueueCard(
+                        item = item,
+                        prefs = prefs,
+                        dragging = dragging,
+                        handle = handle,
+                        modifier = if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = dragOffset }
+                        else Modifier.animateItem(),
+                        onOpenLog = { activity.navRequest.value = "logs" },
                     )
                 }
-                SwipeQueueCard(
-                    item = item,
-                    prefs = prefs,
-                    dragging = dragging,
-                    handle = handle,
-                    modifier = if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = dragOffset }
-                    else Modifier.animateItem(),
-                    onOpenLog = { activity.navRequest.value = "logs" },
-                )
+            } else {
+                if (done.isEmpty()) {
+                    item(key = "doneEmpty") { DownloadedEmpty() }
+                } else {
+                    item(key = "doneInfo") {
+                        Text(
+                            tr(
+                                "${done.size} downloads · ${Utils.fmtBytes(done.sumOf { it.fileSize })}",
+                                "${done.size} ڈاؤن لوڈ · ${Utils.fmtBytes(done.sumOf { it.fileSize })}",
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    items(done, key = { it.id }) { d ->
+                        DownloadedCard(
+                            item = d,
+                            all = done,
+                            onAskDelete = { confirmDelete = it },
+                            onAgain = { section = 0 },
+                        )
+                    }
+                }
             }
         }
     }
+
+    DeleteFileDialog(confirmDelete) { confirmDelete = null }
 
     if (confirmClear) {
         AlertDialog(
@@ -352,6 +400,58 @@ private fun ControlsRow(statuses: List<Status>, onClear: () -> Unit) {
             FilledTonalButton(onClick = { QueueManager.resumeAll() }) { Text(tr("Resume all", "سب شروع کریں")) }
         }
         OutlinedButton(onClick = onClear) { Text(tr("Clear all", "سب ہٹائیں")) }
+    }
+}
+
+/** Two-part switch under the link box: Downloading (queue) and Downloaded (finished, playable). */
+@Composable
+private fun SectionSwitch(selected: Int, left: String, right: String, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        listOf(left, right).forEachIndexed { i, label ->
+            val on = selected == i
+            Box(
+                Modifier.weight(1f)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(if (on) MaterialTheme.colorScheme.primary else Color.Transparent)
+                    .clickable { onSelect(i) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadedEmpty() {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Image(
+            painterResource(R.drawable.streamsnap_logo), null,
+            Modifier.size(84.dp).clip(RoundedCornerShape(22.dp)),
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(tr("No finished downloads yet", "ابھی کوئی مکمل ڈاؤن لوڈ نہیں"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            tr("Finished videos appear here. Tap one to play it.", "مکمل ویڈیوز یہاں نظر آئیں گی۔ چلانے کے لیے ٹیپ کریں۔"),
+            textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp,
+        )
     }
 }
 

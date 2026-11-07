@@ -12,8 +12,8 @@ android {
         applicationId = "com.anas.streamsnap"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         // Both phone architectures in one universal APK (older and newer phones).
         ndk {

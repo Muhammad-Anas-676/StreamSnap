@@ -315,3 +315,54 @@ private fun HistoryCard(
         }
     }
 }
+
+// ------------------------------------------------------------------ shared with the Downloaded section on Home
+/** Play a finished download; the other finished downloads become the playlist. */
+internal fun playDownloaded(ctx: Context, item: DownloadItem, all: List<DownloadItem>) {
+    val f = File(item.filePath)
+    if (item.filePath.isBlank() || !f.exists()) {
+        Toast.makeText(ctx, tr("File is missing. Use Download again.", "فائل موجود نہیں۔ دوبارہ ڈاؤن لوڈ کریں۔"), Toast.LENGTH_SHORT).show()
+        return
+    }
+    val playlist = ArrayList(all.filter { it.filePath.isNotBlank() && File(it.filePath).exists() }.map { it.filePath })
+    ctx.startActivity(PlayerActivity.intent(ctx, item.filePath, playlist))
+}
+
+/** One finished download with play, share, delete and the other actions. */
+@Composable
+internal fun DownloadedCard(
+    item: DownloadItem,
+    all: List<DownloadItem>,
+    onAskDelete: (DownloadItem) -> Unit,
+    onAgain: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    HistoryCard(
+        item,
+        onPlay = { playDownloaded(ctx, item, all) },
+        onShare = { shareFile(ctx, item) },
+        onDeleteFile = { onAskDelete(item) },
+        onRemove = { QueueManager.removeFromHistory(item.id) },
+        onAgain = {
+            QueueManager.redownload(item.id)
+            Toast.makeText(ctx, tr("Added to queue", "قطار میں شامل"), Toast.LENGTH_SHORT).show()
+            onAgain()
+        },
+        onCopyLink = { copyToClipboard(ctx, "link", item.url) },
+    )
+}
+
+/** Confirmation before a downloaded file is deleted from the phone. Shows nothing while [item] is null. */
+@Composable
+internal fun DeleteFileDialog(item: DownloadItem?, onDismiss: () -> Unit) {
+    if (item == null) return
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(tr("Delete file?", "فائل حذف کریں؟")) },
+        text = { Text(item.displayTitle, maxLines = 3, overflow = TextOverflow.Ellipsis) },
+        confirmButton = {
+            TextButton(onClick = { QueueManager.deleteWithFile(item.id); onDismiss() }) { Text(tr("Delete", "حذف کریں")) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel", "منسوخ")) } },
+    )
+}

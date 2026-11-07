@@ -120,6 +120,22 @@ object Engine {
         val extra: List<Pair<String, String?>>,
         /** Download from the page info already read when the link was pasted (skips the slow second extraction). */
         val useInfo: Boolean = false,
+        /** YouTube fast route (no JavaScript solving). If it fails the slower full route takes over. */
+        val fast: Boolean = false,
+    )
+
+    // YouTube "fast mode": this player client needs no JavaScript solving, which is what takes minutes on a phone.
+    private fun ytFastPlan() = Plan(
+        "fast YouTube (no JavaScript)",
+        listOf("--extractor-args" to "youtube:player_client=android_vr"),
+        fast = true,
+    )
+
+    // A failure of the fast route that the full route cannot fix either: stop at once instead of waiting minutes.
+    private val fastStopRx = Regex(
+        "private video|login required|unsupported url|does not exist|has been removed|removed by the uploader|" +
+            "not available in your country|members-only|copyright|age-restricted",
+        RegexOption.IGNORE_CASE,
     )
 
     // ---------------------------------------------------------------- saved page info
@@ -253,18 +269,23 @@ object Engine {
         if (!ensureInit(ctx)) return FetchResult.Error("Engine not ready", lastError)
         waitWhileUpdating()
 
-        val plans = listOf(
-            Plan("normal", emptyList()),
-            Plan(
-                "IPv4 + legacy TLS",
-                listOf("--force-ipv4" to null, "--legacy-server-connect" to null, "--retries" to "3"),
-            ),
-            Plan(
-                "diagnostic (verbose)",
-                listOf("--force-ipv4" to null, "--legacy-server-connect" to null, "--retries" to "1", "--verbose" to null),
-            ),
-        )
         val yt = isYoutube(url)
+        val plans = buildList {
+            if (yt && Settings.value.ytFast && !extrasBroken) add(ytFastPlan())
+            add(Plan("normal", emptyList()))
+            add(
+                Plan(
+                    "IPv4 + legacy TLS",
+                    listOf("--force-ipv4" to null, "--legacy-server-connect" to null, "--retries" to "3"),
+                ),
+            )
+            add(
+                Plan(
+                    "diagnostic (verbose)",
+                    listOf("--force-ipv4" to null, "--legacy-server-connect" to null, "--retries" to "1", "--verbose" to null),
+                ),
+            )
+        }
         val attempts = ArrayList<String>()
         var firstRaw = ""
         var lastRaw = ""
@@ -281,7 +302,8 @@ object Engine {
                 return r
             } catch (t: Throwable) {
                 val msg = t.message ?: t.toString()
-                if (firstRaw.isEmpty()) firstRaw = msg
+                // A failed fast route is not "the" error: the full route runs next and tells the real story.
+                if (firstRaw.isEmpty() && !plan.fast) firstRaw = msg
                 lastRaw = msg
                 stack = LogStore.stack(t)
                 if (!extrasBroken && !optionRetried && optionErrRx.containsMatchIn(msg)) {
@@ -291,7 +313,11 @@ object Engine {
                     continue
                 }
                 attempts.add("${idx + 1}) ${plan.label}: ${shortMessage(msg)}")
-                if (idx == plans.size - 1 || !shouldRetry(msg, yt, false)) break
+                val stopHere = if (plan.fast) fastStopRx.containsMatchIn(msg) else !shouldRetry(msg, yt, false)
+                if (idx == plans.size - 1 || stopHere) {
+                    if (firstRaw.isEmpty()) firstRaw = msg
+                    break
+                }
                 LogStore.w("fetch", "Trying again (${plans[idx + 1].label})", url, shortMessage(msg))
                 idx++
             }
@@ -411,17 +437,22 @@ object Engine {
         val startedAt = System.currentTimeMillis()
 
         val yt = isYoutube(item.url)
+        val hasInfo = freshInfoFile(ctx, item.url) != null
         val basePlans = if (yt) {
-            listOf(
-                Plan("normal", emptyList()),
-                Plan(
-                    "other YouTube clients + IPv4",
-                    listOf(
-                        "--extractor-args" to "youtube:player_client=default,android,web_embedded,mweb",
-                        "--force-ipv4" to null,
+            buildList {
+                // Without saved page info, start with the fast no-JavaScript route (the saved info already came from it or from the full route).
+                if (p.ytFast && !hasInfo && !extrasBroken) add(ytFastPlan())
+                add(Plan("normal", emptyList()))
+                add(
+                    Plan(
+                        "other YouTube clients + IPv4",
+                        listOf(
+                            "--extractor-args" to "youtube:player_client=default,android,web_embedded,mweb",
+                            "--force-ipv4" to null,
+                        ),
                     ),
-                ),
-            )
+                )
+            }
         } else {
             listOf(
                 Plan("normal", emptyList()),
@@ -429,7 +460,7 @@ object Engine {
             )
         }
         // First try the page info that was already read when the link was pasted (much faster to start).
-        val plans = if (freshInfoFile(ctx, item.url) != null) {
+        val plans = if (hasInfo) {
             listOf(Plan("saved page info", emptyList(), useInfo = true)) + basePlans
         } else basePlans
 
@@ -456,10 +487,13 @@ object Engine {
                     idx++
                     continue
                 }
-                if (firstRaw.isEmpty()) firstRaw = msg
+                if (firstRaw.isEmpty() && !plan.fast) firstRaw = msg
                 lastRaw = msg
                 stack = LogStore.stack(t)
-                if (cancelled.contains(item.id)) break // paused / cancelled by the user
+                if (cancelled.contains(item.id)) { // paused / cancelled by the user
+                    if (firstRaw.isEmpty()) firstRaw = msg
+                    break
+                }
                 if (!extrasBroken && !optionRetried && optionErrRx.containsMatchIn(msg)) {
                     extrasBroken = true
                     optionRetried = true
@@ -467,7 +501,11 @@ object Engine {
                     continue
                 }
                 attempts.add("${idx + 1}) ${plan.label}: ${shortMessage(msg)}")
-                if (idx == plans.size - 1 || !shouldRetry(msg, yt, true)) break
+                val stopHere = if (plan.fast) fastStopRx.containsMatchIn(msg) else !shouldRetry(msg, yt, true)
+                if (idx == plans.size - 1 || stopHere) {
+                    if (firstRaw.isEmpty()) firstRaw = msg
+                    break
+                }
                 LogStore.w("download", "Trying again (${plans[idx + 1].label})", item.url, shortMessage(msg))
                 idx++
             }
