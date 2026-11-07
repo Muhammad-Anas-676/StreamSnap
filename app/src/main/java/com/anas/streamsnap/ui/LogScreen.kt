@@ -140,7 +140,7 @@ fun LogScreen() {
 
         OutlinedTextField(
             value = query, onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).tapToType(),
             singleLine = true,
             leadingIcon = { Icon(Icons.Filled.Search, null) },
             placeholder = { Text(tr("Search the log", "لاگ میں تلاش کریں")) },

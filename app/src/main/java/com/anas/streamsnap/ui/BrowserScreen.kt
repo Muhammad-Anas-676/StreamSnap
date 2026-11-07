@@ -240,7 +240,7 @@ fun BrowserScreen() {
                 BasicTextField(
                     value = urlText,
                     onValueChange = { urlText = it },
-                    modifier = Modifier.weight(1f).onFocusChanged { editing = it.isFocused },
+                    modifier = Modifier.weight(1f).tapToType().onFocusChanged { editing = it.isFocused },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),

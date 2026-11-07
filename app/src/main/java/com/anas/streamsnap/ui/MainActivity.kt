@@ -48,6 +48,12 @@ class MainActivity : AppCompatActivity() {
                 Settings.state.map { it.blockScreenshots }.distinctUntilChanged().collect { applySecure(it) }
             }
         }
+        // Keyboard mode is a live switch in Settings (Appearance > Auto keyboard).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                Settings.state.map { it.autoKeyboard }.distinctUntilChanged().collect { applyKeyboardMode(it) }
+            }
+        }
 
         setContent {
             val prefs by Settings.state.collectAsState()
@@ -72,6 +78,12 @@ class MainActivity : AppCompatActivity() {
             val r = QueueManager.addLinks(text)
             Toast.makeText(this, addResultMessage(r), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun applyKeyboardMode(auto: Boolean) {
+        val state = if (auto) WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED
+        else WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
+        window.setSoftInputMode(state or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
     private fun applySecure(on: Boolean) {

@@ -260,6 +260,7 @@ fun MainScaffold(activity: MainActivity) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(tab) {
+        if (Settings.value.autoKeyboard) return@LaunchedEffect
         repeat(10) {
             focusManager.clearFocus(force = true)
             keyboard?.hide()

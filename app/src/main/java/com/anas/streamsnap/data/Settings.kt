@@ -14,6 +14,7 @@ data class Prefs(
     val amoled: Boolean = false,
     val accent: Int = 0,                 // index in Accents, 99 = dynamic (Material You)
     val language: String = "en",         // en | ur
+    val autoKeyboard: Boolean = false,   // false = keyboard opens only when a text field is tapped
     // Downloads
     val autoStart: Boolean = true,       // true = Automatic download, false = Manual (tap the download icon)
     val parallel: Int = 2,
@@ -76,6 +77,7 @@ object Settings {
             amoled = sp.getBoolean("amoled", d.amoled),
             accent = sp.getInt("accent", d.accent),
             language = sp.getString("language", d.language) ?: d.language,
+            autoKeyboard = sp.getBoolean("autoKeyboard", d.autoKeyboard),
             autoStart = sp.getBoolean("autoStart", d.autoStart),
             parallel = sp.getInt("parallel", d.parallel).coerceIn(1, 3),
             wifiOnly = sp.getBoolean("wifiOnly", d.wifiOnly),
@@ -121,6 +123,7 @@ object Settings {
             .putBoolean("amoled", p.amoled)
             .putInt("accent", p.accent)
             .putString("language", p.language)
+            .putBoolean("autoKeyboard", p.autoKeyboard)
             .putBoolean("autoStart", p.autoStart)
             .putInt("parallel", p.parallel)
             .putBoolean("wifiOnly", p.wifiOnly)

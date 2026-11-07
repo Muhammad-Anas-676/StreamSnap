@@ -274,7 +274,11 @@ object Engine {
         while (idx < plans.size) {
             val plan = plans[idx]
             try {
-                return fetchOnce(ctx, url, plan)
+                val t0 = System.currentTimeMillis()
+                val r = fetchOnce(ctx, url, plan)
+                // The time is logged so a slow link can be traced from the Log screen.
+                LogStore.i("fetch", "Link read in ${(System.currentTimeMillis() - t0) / 1000} s (${plan.label})", url)
+                return r
             } catch (t: Throwable) {
                 val msg = t.message ?: t.toString()
                 if (firstRaw.isEmpty()) firstRaw = msg
@@ -302,8 +306,6 @@ object Engine {
         if (plan.extra.none { it.first == "--verbose" }) req.addOption("--no-warnings")
         req.addOption("--playlist-end", "500")
         if (urlHasVideoAndList(url)) req.addOption("--no-playlist")
-        // The preview only needs the normal subtitle list: skipping the translated ones makes YouTube much faster.
-        if (isYoutube(url)) req.addOption("--extractor-args", "youtube:skip=translated_subs")
         applyCommon(ctx, req, Settings.value, url)
         req.addAll(plan.extra)
 
@@ -487,7 +489,10 @@ object Engine {
         if (plan.useInfo && saved == null) throw IllegalStateException("No saved page info for this link")
         // With saved info the engine skips the slow page reading and starts downloading straight away.
         val req = if (saved != null) YoutubeDLRequest(emptyList<String>()) else YoutubeDLRequest(item.url)
-        if (saved != null) req.addOption("--load-info-json", saved.absolutePath)
+        if (saved != null) {
+            req.addOption("--load-info-json", saved.absolutePath)
+            LogStore.i("download", "Starting from the already read page info (no second page read)", item.url)
+        }
         req.addOption("--no-playlist")
         req.addOption("--no-mtime")
         req.addOption("-N", "4")
@@ -546,12 +551,6 @@ object Engine {
     private fun applyCommon(ctx: Context, req: YoutubeDLRequest, p: Prefs, url: String) {
         req.addOption("--socket-timeout", "30")
         req.addOption("--retries", "10")
-        // A fixed cache folder lets the engine keep what it worked out (YouTube player scripts etc.) between runs.
-        try {
-            val cd = File(ctx.cacheDir, "yt-dlp")
-            cd.mkdirs()
-            req.addOption("--cache-dir", cd.absolutePath)
-        } catch (_: Throwable) { }
         if (p.proxy.isNotBlank()) req.addOption("--proxy", p.proxy.trim())
         if (p.useCookies) {
             val c = cookieFile(ctx)

@@ -277,7 +277,7 @@ private fun AddCard(input: String, onInput: (String) -> Unit, onAdd: () -> Unit,
             OutlinedTextField(
                 value = input,
                 onValueChange = onInput,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().tapToType(),
                 minLines = 2,
                 maxLines = 5,
                 placeholder = { Text(tr("Paste video links here (one or many)", "ویڈیو لنک یہاں پیسٹ کریں (ایک یا کئی)")) },

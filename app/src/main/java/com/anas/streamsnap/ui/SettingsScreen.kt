@@ -716,6 +716,15 @@ private fun AppearanceSection(prefs: Prefs) {
             if (Build.VERSION.SDK_INT >= 31) Hint(tr("The rainbow circle uses your wallpaper colors.", "رنگین دائرہ آپ کے وال پیپر کے رنگ استعمال کرتا ہے۔"))
         }
         HorizontalDivider()
+        SwitchRow(
+            tr("Auto keyboard", "خودکار کی بورڈ"),
+            tr(
+                "Off: the keyboard opens only when you tap a text field. On: it may open by itself on screens that have a text field.",
+                "بند: کی بورڈ صرف ٹیکسٹ فیلڈ پر ٹیپ کرنے سے کھلے گا۔ آن: ٹیکسٹ فیلڈ والی اسکرین پر خود کھل سکتا ہے۔",
+            ),
+            prefs.autoKeyboard,
+        ) { v -> Settings.update { it.copy(autoKeyboard = v) } }
+        HorizontalDivider()
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(tr("Language", "زبان"), style = MaterialTheme.typography.bodyLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
