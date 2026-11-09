@@ -29,9 +29,12 @@ data class DownloadItem(
     val waitReason: String = "",
     val addedAt: Long = System.currentTimeMillis(),
     val finishedAt: Long = 0,
+    val customName: String = "",       // file name chosen by the user (empty = use the video title)
+    val subLangs: String = "",         // "" = follow Settings, "none" = no subtitles, else e.g. "en,ur"
+    val retries: Int = 0,              // automatic retries already used
 ) {
     val isAudio: Boolean get() = quality == "audio" || quality == "m4a"
-    val displayTitle: String get() = title.ifBlank { url }
+    val displayTitle: String get() = customName.ifBlank { title }.ifBlank { url }
     val isActive: Boolean get() = status != Status.DONE
 
     /** Rough size for a quality choice (0 = unknown). */
@@ -60,6 +63,7 @@ data class DownloadItem(
         put("sizeEstimate", sizeEstimate); put("filePath", filePath); put("fileSize", fileSize)
         put("error", error); put("waitReason", waitReason)
         put("addedAt", addedAt); put("finishedAt", finishedAt)
+        put("customName", customName); put("subLangs", subLangs); put("retries", retries)
     }
 
     companion object {
@@ -96,6 +100,9 @@ data class DownloadItem(
                 waitReason = o.optString("waitReason"),
                 addedAt = o.optLong("addedAt", System.currentTimeMillis()),
                 finishedAt = o.optLong("finishedAt"),
+                customName = o.optString("customName"),
+                subLangs = o.optString("subLangs"),
+                retries = o.optInt("retries"),
             )
         }
     }
@@ -134,6 +141,31 @@ val QUALITY_OPTIONS: List<Pair<String, String>> = listOf(
 
 /** Playlists / channels with more videos than this ask for confirmation before adding. */
 const val PLAYLIST_CONFIRM_THRESHOLD = 20
+
+/** Subtitle languages the user can pick (code, name). */
+val SUB_LANGS: List<Pair<String, String>> = listOf(
+    "en" to "English",
+    "ur" to "Urdu",
+    "hi" to "Hindi",
+    "ar" to "Arabic",
+    "es" to "Spanish",
+    "fr" to "French",
+    "de" to "German",
+    "tr" to "Turkish",
+    "id" to "Indonesian",
+    "ru" to "Russian",
+    "pt" to "Portuguese",
+    "bn" to "Bengali",
+    "fa" to "Persian",
+    "zh" to "Chinese",
+    "ja" to "Japanese",
+    "ko" to "Korean",
+)
+
+/** "en,ur" -> "English, Urdu". */
+fun subLangNames(codes: String): String =
+    codes.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        .joinToString(", ") { c -> SUB_LANGS.firstOrNull { it.first == c }?.second ?: c }
 
 fun qualityLabel(q: String): String = QUALITY_OPTIONS.firstOrNull { it.first == q }?.second ?: q
 

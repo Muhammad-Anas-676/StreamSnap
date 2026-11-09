@@ -4,6 +4,7 @@ import android.content.Context
 import com.anas.streamsnap.data.DownloadItem
 import com.anas.streamsnap.data.Prefs
 import com.anas.streamsnap.data.Settings
+import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.service.Notifier
 import com.anas.streamsnap.util.LogStore
 import com.anas.streamsnap.util.Utils
@@ -180,6 +181,26 @@ object Engine {
         RegexOption.IGNORE_CASE,
     )
 
+    // The server cut the secure connection (some sites refuse apps that do not look like a browser).
+    private val tlsCutRx = Regex("unexpected_eof|eof occurred|ssl:|connection reset|reset by peer", RegexOption.IGNORE_CASE)
+
+    // "Too many requests": a retry right away is refused again, so wait a little first.
+    private val rateLimitRx = Regex("http error 429|too many requests", RegexOption.IGNORE_CASE)
+
+    private fun backoffIfLimited(msg: String) {
+        if (rateLimitRx.containsMatchIn(msg)) {
+            try { Thread.sleep(10_000) } catch (_: InterruptedException) { }
+        }
+    }
+
+    /** True when trying again later cannot help (private / removed / login / full storage ...). Used by auto-retry. */
+    fun isPermanentError(msg: String): Boolean =
+        noRetryRx.containsMatchIn(msg) || fastStopRx.containsMatchIn(msg) ||
+            Regex("no space left|unsupported url|no videos found", RegexOption.IGNORE_CASE).containsMatchIn(msg)
+
+    /** True for "too many requests": the auto-retry waits longer. */
+    fun isRateLimited(msg: String): Boolean = rateLimitRx.containsMatchIn(msg)
+
     // Network-type problems: a different connection style (IPv4, legacy TLS) sometimes fixes them.
     private val netRx = Regex(
         "closed file|connection reset|reset by peer|timed out|timeout|transporterror|unable to download webpage|" +
@@ -320,6 +341,7 @@ object Engine {
                     break
                 }
                 LogStore.w("fetch", "Trying again (${plans[idx + 1].label})", url, shortMessage(msg))
+                backoffIfLimited(msg)
                 idx++
             }
         }
@@ -333,6 +355,12 @@ object Engine {
         if (plan.extra.none { it.first == "--verbose" }) req.addOption("--no-warnings")
         req.addOption("--playlist-end", "500")
         if (urlHasVideoAndList(url)) req.addOption("--no-playlist")
+        if (!isYoutube(url)) {
+            // The preview only needs title, picture and the quality list. Do not test every video server now
+            // (a server that cuts the connection would turn a good link into "Requested format is not available").
+            req.addOption("--no-check-formats")
+            req.addOption("--ignore-no-formats-error")
+        }
         applyCommon(ctx, req, Settings.value, url)
         req.addAll(plan.extra)
 
@@ -428,13 +456,15 @@ object Engine {
         ctx: Context,
         item: DownloadItem,
         p: Prefs,
+        onPhase: (String) -> Unit = {},
         onProgress: (percent: Float, etaSec: Long, line: String) -> Unit,
     ): DownloadOutcome {
         if (!ensureInit(ctx)) return DownloadOutcome(false, message = "Engine not ready", raw = lastError)
         waitWhileUpdating()
         cancelled.remove(item.id)
-        val dir = Utils.outputDir(ctx, p.folder)
-        Utils.applyNoMedia(dir, p.hiddenFolder)
+        val baseDir = Utils.outputDir(ctx, p.folder)
+        Utils.applyNoMedia(baseDir, p.hiddenFolder)
+        val dir = if (p.siteFolders) File(baseDir, siteFolderName(item.url)).also { it.mkdirs() } else baseDir
         val startedAt = System.currentTimeMillis()
 
         val yt = isYoutube(item.url)
@@ -458,6 +488,8 @@ object Engine {
             listOf(
                 Plan("normal", emptyList()),
                 Plan("IPv4 + legacy TLS", listOf("--force-ipv4" to null, "--legacy-server-connect" to null)),
+                // Last try: ffmpeg downloads the video with its own TLS, which some video servers accept when the engine's is refused.
+                Plan("ffmpeg downloader", listOf("--downloader" to "ffmpeg", "--no-check-formats" to null, "--force-ipv4" to null)),
             )
         }
         // First try the page info that was already read when the link was pasted (much faster to start).
@@ -478,6 +510,9 @@ object Engine {
                 if (plan.useInfo || outcome.ok) {
                     try { infoFile(ctx, item.url).delete() } catch (_: Throwable) { }
                 }
+                if (outcome.ok && outcome.filePath.isNotBlank() && customizing(item, p)) {
+                    return applyCustomSettings(ctx, item, p, outcome.filePath, onPhase)
+                }
                 return outcome
             } catch (t: Throwable) {
                 val msg = t.message ?: t.toString()
@@ -485,7 +520,8 @@ object Engine {
                     // Not an error for the user: just read the page the normal way.
                     LogStore.w("download", "Saved page info did not work; reading the page again", item.url, shortMessage(msg))
                     try { infoFile(ctx, item.url).delete() } catch (_: Throwable) { }
-                    idx++
+                    // A connection that is cut (SSL EOF / reset) will be cut again by the "normal" run, so skip it.
+                    idx += if (!yt && tlsCutRx.containsMatchIn(msg) && idx + 2 < plans.size) 2 else 1
                     continue
                 }
                 if (firstRaw.isEmpty() && !plan.fast) firstRaw = msg
@@ -508,6 +544,7 @@ object Engine {
                     break
                 }
                 LogStore.w("download", "Trying again (${plans[idx + 1].label})", item.url, shortMessage(msg))
+                backoffIfLimited(msg)
                 idx++
             }
         }
@@ -536,16 +573,17 @@ object Engine {
         req.addOption("--no-mtime")
         req.addOption("-N", "4")
         req.addOption("-P", dir.absolutePath)
-        req.addOption("-o", p.nameTemplate.ifBlank { "%(title).120B.%(ext)s" })
-        applyQuality(req, item.quality)
+        req.addOption("-o", outputTemplate(item, p))
+        applyQuality(req, effectiveQuality(item, p))
         if (p.speedLimitKb > 0) req.addOption("-r", "${p.speedLimitKb}K")
         if (p.saveThumb) {
             req.addOption("--write-thumbnail")
             req.addOption("--convert-thumbnails", "jpg")
         }
-        if (p.saveSubs) {
+        val subs = effectiveSubLangs(item, p)
+        if (subs.isNotEmpty()) {
             req.addOption("--write-subs")
-            req.addOption("--sub-langs", "en.*,ur.*")
+            req.addOption("--sub-langs", subs.joinToString(",") { "$it.*" })
             req.addOption("--convert-subs", "srt")
         }
         applyCommon(ctx, req, p, item.url)
@@ -565,6 +603,227 @@ object Engine {
         partials.remove(item.id)
         return if (path == null) DownloadOutcome(true, "", "Finished, but the file was not found in ${dir.absolutePath}")
         else DownloadOutcome(true, path)
+    }
+
+    // ---------------------------------------------------------------- custom video settings
+    /** Custom video settings apply to video downloads only (MP3 / M4A are left alone). */
+    private fun customizing(item: DownloadItem, p: Prefs): Boolean =
+        p.cvOn && item.quality != "audio" && item.quality != "m4a"
+
+    /** With a custom resolution the video is fetched near that size already (less to convert, less data). */
+    private fun effectiveQuality(item: DownloadItem, p: Prefs): String =
+        if (customizing(item, p) && p.cvRes > 0) p.cvRes.toString() else item.quality
+
+    /** ffmpeg arguments for the custom settings. [vcodec] may differ from the Settings value when a codec is missing. */
+    private fun customArgs(p: Prefs, vcodec: String): String {
+        val vf = ArrayList<String>()
+        if (p.cvRes > 0) {
+            // cvRes is the SHORT side (like "240p"), never scaled up
+            vf.add("scale='if(gt(iw,ih),-2,min(${p.cvRes},iw))':'if(gt(iw,ih),min(${p.cvRes},ih),-2)'")
+        }
+        when (p.cvRotate) {
+            90 -> vf.add("transpose=1")
+            180 -> { vf.add("hflip"); vf.add("vflip") }
+            270 -> vf.add("transpose=2")
+        }
+        when (p.cvFlip) {
+            "h" -> vf.add("hflip")
+            "v" -> vf.add("vflip")
+        }
+        // Compress = two steps coarser, smaller audio
+        val q = (if (p.cvCompress) p.cvQuality + 2 else p.cvQuality).coerceIn(1, 5)
+        val a = ArrayList<String>()
+        if (vf.isNotEmpty()) { a.add("-vf"); a.add("\"" + vf.joinToString(",") + "\"") }
+        if (p.cvFps > 0) { a.add("-r"); a.add(p.cvFps.toString()) }
+        when (vcodec) {
+            "h264" -> a.addAll(listOf("-c:v", "libx264", "-preset", "ultrafast", "-crf", listOf(20, 23, 26, 29, 33)[q - 1].toString(), "-pix_fmt", "yuv420p"))
+            "h265" -> a.addAll(listOf("-c:v", "libx265", "-preset", "ultrafast", "-crf", listOf(24, 27, 30, 33, 37)[q - 1].toString(), "-tag:v", "hvc1", "-pix_fmt", "yuv420p"))
+            else -> a.addAll(listOf("-c:v", "mpeg4", "-q:v", listOf(2, 4, 6, 10, 16)[q - 1].toString(), "-pix_fmt", "yuv420p"))
+        }
+        val ab = if (p.cvCompress) "64k" else "128k"
+        if (p.cvACodec == "mp3") a.addAll(listOf("-c:a", "libmp3lame", "-b:a", ab)) else a.addAll(listOf("-c:a", "aac", "-b:a", ab))
+        return a.joinToString(" ")
+    }
+
+    private val missingEncoderRx = Regex("unknown encoder|encoder .* not found|automatic encoder selection failed|no such encoder", RegexOption.IGNORE_CASE)
+
+    /**
+     * Re-encodes the finished download with the user's custom video settings (resolution, frame rate, codecs,
+     * quality, rotation, flip, compress). yt-dlp does it: it "downloads" the local file (file:// switched on for
+     * this one call) and recodes it with ffmpeg. yt-dlp skips "mp4 to mp4", so the working copy is given an
+     * .mkv name first (ffmpeg looks at the content, not the name). The original is only replaced when the
+     * new file is ready; if anything fails the downloaded video stays as it was and the Log says why.
+     */
+    private fun applyCustomSettings(ctx: Context, item: DownloadItem, p: Prefs, srcPath: String, onPhase: (String) -> Unit): DownloadOutcome {
+        val src = File(srcPath)
+        val parent = src.parentFile
+        if (!src.exists() || parent == null) return DownloadOutcome(true, srcPath)
+        val work = File(parent, ".cvtmp-" + System.currentTimeMillis())
+        val inFile = File(work, "in.mkv")
+        val outDir = File(work, "out")
+        var moved = false
+        partials[item.id] = srcPath
+        try {
+            onPhase(tr("Applying your video settings…", "آپ کی ویڈیو سیٹنگز لگ رہی ہیں…"))
+            outDir.mkdirs()
+            moved = src.renameTo(inFile)
+            if (!moved) {
+                src.copyTo(inFile, overwrite = true)
+            }
+            var fileUrl = inFile.toURI().toASCIIString()
+            if (!fileUrl.startsWith("file:///")) fileUrl = fileUrl.replaceFirst("file:/", "file:///")
+
+            var codec = p.cvVCodec
+            var result: File? = null
+            var lastErr = ""
+            for (attempt in 0..1) {
+                outDir.listFiles()?.forEach { it.delete() }
+                try {
+                    val req = YoutubeDLRequest(fileUrl)
+                    req.addOption("--enable-file-urls")
+                    req.addOption("--no-playlist")
+                    req.addOption("--no-mtime")
+                    req.addOption("-P", outDir.absolutePath)
+                    req.addOption("-o", "vid.%(ext)s")
+                    req.addOption("--recode-video", "mp4")
+                    req.addOption("--postprocessor-args", "VideoConvertor:" + customArgs(p, codec))
+                    YoutubeDL.getInstance().execute(req, item.id) { _, _, _ -> }
+                    result = outDir.listFiles { f -> f.isFile && f.name.endsWith(".mp4", true) }?.maxByOrNull { it.length() }
+                    break
+                } catch (t: Throwable) {
+                    val msg = t.message ?: t.toString()
+                    lastErr = msg
+                    if (cancelled.contains(item.id)) throw t
+                    if (attempt == 0 && codec != "mpeg4" && missingEncoderRx.containsMatchIn(msg)) {
+                        LogStore.w("download", "This phone's engine has no $codec encoder; using MPEG4 instead", item.url, shortMessage(msg))
+                        codec = "mpeg4"
+                        continue
+                    }
+                    throw t
+                }
+            }
+            val out = result
+            if (out == null || out.length() <= 0L) {
+                throw IllegalStateException("No converted file was produced" + if (lastErr.isNotBlank()) ": $lastErr" else "")
+            }
+            // Same name as the download, always .mp4
+            var target = File(parent, src.nameWithoutExtension + ".mp4")
+            var n = 1
+            while (target.exists()) { target = File(parent, src.nameWithoutExtension + " (" + n + ").mp4"); n++ }
+            if (!out.renameTo(target)) {
+                out.copyTo(target, overwrite = false)
+                out.delete()
+            }
+            inFile.delete() // the original is replaced
+            LogStore.i("download", "Applied your video settings (${customSummary(p, codec)})", item.url, detail = target.absolutePath)
+            return DownloadOutcome(true, target.absolutePath)
+        } catch (t: Throwable) {
+            val msg = t.message ?: t.toString()
+            if (cancelled.contains(item.id)) {
+                // paused / cancelled: put the original back so nothing is lost
+                restoreOriginal(inFile, src)
+                return DownloadOutcome(false, message = shortMessage(msg), raw = msg)
+            }
+            restoreOriginal(inFile, src)
+            LogStore.w("download", "Your video settings could not be applied; the video is saved as downloaded", item.url, detail = failureText(msg, msg, emptyList(), LogStore.stack(t)))
+            return DownloadOutcome(true, srcPath, tr("Saved as downloaded: your video settings could not be applied. See the Log.", "جیسی ڈاؤن لوڈ ہوئی ویسی محفوظ ہے: آپ کی ویڈیو سیٹنگز لاگو نہیں ہو سکیں۔ لاگ دیکھیں۔"))
+        } finally {
+            partials.remove(item.id)
+            try { work.deleteRecursively() } catch (_: Throwable) { }
+        }
+    }
+
+    private fun restoreOriginal(inFile: File, src: File) {
+        try {
+            if (inFile.exists() && !src.exists()) {
+                if (!inFile.renameTo(src)) inFile.copyTo(src, overwrite = false)
+            }
+        } catch (_: Throwable) { }
+    }
+
+    private fun customSummary(p: Prefs, codec: String): String =
+        listOf(
+            if (p.cvRes > 0) "${p.cvRes}p" else "original size",
+            if (p.cvFps > 0) "${p.cvFps} fps" else "original fps",
+            codec, p.cvACodec, "quality ${p.cvQuality}",
+            if (p.cvRotate != 0) "rotate ${p.cvRotate}" else "",
+            if (p.cvFlip != "none") "flip ${p.cvFlip}" else "",
+            if (p.cvCompress) "compress" else "",
+        ).filter { it.isNotEmpty() }.joinToString(", ")
+
+    /** Folder name for "site-wise folders": the same name for every link of one site. */
+    private fun siteFolderName(url: String): String {
+        val h = Utils.hostOf(url).lowercase()
+        val name = when {
+            h == "youtu.be" || h.endsWith("youtube.com") || h.endsWith("youtube-nocookie.com") -> "YouTube"
+            else -> Utils.siteName(url)
+        }
+        val clean = name.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "").trim()
+        return clean.ifEmpty { "Other" }
+    }
+
+    /** The file name template: the user's own name for this video, or the Settings template. */
+    private fun outputTemplate(item: DownloadItem, p: Prefs): String {
+        val custom = item.customName.trim()
+        if (custom.isEmpty()) return p.nameTemplate.ifBlank { "%(title).120B.%(ext)s" }
+        val clean = Utils.safeFileName(custom).replace("%", "%%") // % means "field" in the yt-dlp template
+        return (clean.ifEmpty { "video" }) + ".%(ext)s"
+    }
+
+    /** Subtitle language codes to download for this video (empty = none). */
+    private fun effectiveSubLangs(item: DownloadItem, p: Prefs): List<String> {
+        val raw = when {
+            item.subLangs == "none" -> ""
+            item.subLangs.isNotBlank() -> item.subLangs
+            p.saveSubs -> p.subLangs
+            else -> ""
+        }
+        return raw.split(',').map { it.trim() }.filter { it.isNotEmpty() && it.all { c -> c.isLetterOrDigit() || c == '-' } }
+    }
+
+    /**
+     * Converts a finished video to MP3 next to it. yt-dlp is asked to "download" the local file (file:// is
+     * switched on for this one call) and to extract the audio with ffmpeg. The work happens in a temp folder
+     * and the MP3 is moved next to the video at the end, so the original is never touched.
+     */
+    fun toMp3(ctx: Context, srcPath: String, processId: String): DownloadOutcome {
+        if (!ensureInit(ctx)) return DownloadOutcome(false, message = "Engine not ready", raw = lastError)
+        waitWhileUpdating()
+        val src = File(srcPath)
+        if (!src.exists()) return DownloadOutcome(false, message = "The video file is missing")
+        val parent = src.parentFile ?: return DownloadOutcome(false, message = "Folder not found")
+        val tmp = File(parent, ".mp3tmp-" + System.currentTimeMillis())
+        return try {
+            tmp.mkdirs()
+            val base = src.nameWithoutExtension
+            var fileUrl = src.toURI().toASCIIString() // percent-encoded, e.g. file:/storage/emulated/0/...
+            if (!fileUrl.startsWith("file:///")) fileUrl = fileUrl.replaceFirst("file:/", "file:///")
+            val req = YoutubeDLRequest(fileUrl)
+            req.addOption("--enable-file-urls")
+            req.addOption("--no-playlist")
+            req.addOption("--no-mtime")
+            req.addOption("-P", tmp.absolutePath)
+            req.addOption("-o", base.replace("%", "%%") + ".%(ext)s")
+            req.addOption("-x")
+            req.addOption("--audio-format", "mp3")
+            req.addOption("--audio-quality", "0")
+            YoutubeDL.getInstance().execute(req, processId) { _, _, _ -> }
+            val mp3 = tmp.listFiles { f -> f.isFile && f.name.endsWith(".mp3", true) }?.maxByOrNull { it.lastModified() }
+                ?: return DownloadOutcome(false, message = "No MP3 file was produced")
+            var target = File(parent, mp3.name)
+            var n = 1
+            while (target.exists()) { target = File(parent, mp3.nameWithoutExtension + " (" + n + ").mp3"); n++ }
+            if (!mp3.renameTo(target)) {
+                mp3.copyTo(target, overwrite = false)
+                mp3.delete()
+            }
+            DownloadOutcome(true, target.absolutePath)
+        } catch (t: Throwable) {
+            val msg = t.message ?: t.toString()
+            DownloadOutcome(false, message = shortMessage(msg), raw = failureText(msg, msg, emptyList(), LogStore.stack(t)))
+        } finally {
+            try { tmp.deleteRecursively() } catch (_: Throwable) { }
+        }
     }
 
     private fun newestMedia(dir: File, since: Long): String? =

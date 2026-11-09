@@ -26,6 +26,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
@@ -247,14 +249,24 @@ private fun HistoryCard(
     onRemove: () -> Unit,
     onAgain: () -> Unit,
     onCopyLink: () -> Unit,
+    // Extra features of the Downloaded section on Home (the History tab leaves these out)
+    selectMode: Boolean = false,
+    selected: Boolean = false,
+    onToggle: () -> Unit = {},
+    onSelectStart: (() -> Unit)? = null,
+    onMp3: (() -> Unit)? = null,
+    onRename: (() -> Unit)? = null,
+    converting: Boolean = false,
 ) {
     var menu by remember { mutableStateOf(false) }
     val exists = remember(item.filePath) { item.filePath.isNotBlank() && File(item.filePath).exists() }
 
     Card(
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = if (selectMode) onToggle else onPlay),
     ) {
         Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -272,7 +284,18 @@ private fun HistoryCard(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(30.dp),
                     )
                 }
-                if (exists) {
+                if (selectMode) {
+                    Box(
+                        Modifier.size(30.dp).clip(RoundedCornerShape(15.dp)).background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.45f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked, null,
+                            tint = if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.White,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                } else if (exists) {
                     Box(
                         Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.45f)),
                         contentAlignment = Alignment.Center,
@@ -289,17 +312,33 @@ private fun HistoryCard(
                 ).filter { it.isNotBlank() }.joinToString(" · ")
                 Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    if (exists) dateFmt.format(Date(item.finishedAt.takeIf { it > 0 } ?: item.addedAt))
-                    else tr("File missing", "فائل موجود نہیں"),
+                    when {
+                        converting -> tr("Converting to MP3…", "MP3 میں تبدیل ہو رہی ہے…")
+                        exists -> dateFmt.format(Date(item.finishedAt.takeIf { it > 0 } ?: item.addedAt))
+                        else -> tr("File missing", "فائل موجود نہیں")
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (exists) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                    color = if (exists || converting) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                 )
             }
-            Box {
+            if (!selectMode) Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = null) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     if (exists) {
                         DropdownMenuItem(text = { Text(tr("Share", "شیئر")) }, onClick = { menu = false; onShare() })
+                    }
+                    if (exists && onMp3 != null && !item.isAudio) {
+                        DropdownMenuItem(
+                            text = { Text(if (converting) tr("Converting…", "تبدیل ہو رہی ہے…") else tr("Convert to MP3", "MP3 میں تبدیل کریں")) },
+                            enabled = !converting,
+                            onClick = { menu = false; onMp3() },
+                        )
+                    }
+                    if (exists && onRename != null) {
+                        DropdownMenuItem(text = { Text(tr("Rename", "نام بدلیں")) }, onClick = { menu = false; onRename() })
+                    }
+                    if (onSelectStart != null) {
+                        DropdownMenuItem(text = { Text(tr("Select", "منتخب کریں")) }, onClick = { menu = false; onSelectStart() })
                     }
                     DropdownMenuItem(text = { Text(tr("Download again", "دوبارہ ڈاؤن لوڈ")) }, onClick = { menu = false; onAgain() })
                     DropdownMenuItem(text = { Text(tr("Copy link", "لنک کاپی")) }, onClick = { menu = false; onCopyLink() })
@@ -335,8 +374,15 @@ internal fun DownloadedCard(
     all: List<DownloadItem>,
     onAskDelete: (DownloadItem) -> Unit,
     onAgain: () -> Unit,
+    selectMode: Boolean = false,
+    selected: Boolean = false,
+    onToggle: () -> Unit = {},
+    onSelectStart: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
+    val converting by QueueManager.converting.collectAsState()
+    var renaming by remember { mutableStateOf(false) }
+    if (renaming) RenameDialog(item) { renaming = false }
     HistoryCard(
         item,
         onPlay = { playDownloaded(ctx, item, all) },
@@ -349,6 +395,13 @@ internal fun DownloadedCard(
             onAgain()
         },
         onCopyLink = { copyToClipboard(ctx, "link", item.url) },
+        selectMode = selectMode,
+        selected = selected,
+        onToggle = onToggle,
+        onSelectStart = onSelectStart,
+        onMp3 = { QueueManager.convertToMp3(item.id) },
+        onRename = { renaming = true },
+        converting = item.id in converting,
     )
 }
 

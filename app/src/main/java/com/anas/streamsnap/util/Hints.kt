@@ -48,8 +48,18 @@ object Hints {
         if (e.contains("http error 429") || e.contains("too many requests")) {
             return ErrorHint(
                 tr(
-                    "Too many requests. Wait a few minutes, then retry.",
-                    "بہت زیادہ درخواستیں۔ چند منٹ انتظار کریں، پھر دوبارہ کوشش کریں۔",
+                    "The site says too many requests (VPN servers are often shared and get limited). Wait 2-3 minutes or switch the VPN server, then retry.",
+                    "سائٹ کہہ رہی ہے بہت زیادہ درخواستیں (VPN سرور عموماً شیئرڈ ہوتے ہیں اور محدود ہو جاتے ہیں)۔ 2-3 منٹ انتظار کریں یا VPN سرور بدلیں، پھر دوبارہ کوشش کریں۔",
+                ),
+            )
+        }
+        if (e.contains("unexpected_eof") || e.contains("eof occurred") ||
+            (e.contains("requested format is not available") && !e.contains("youtube"))
+        ) {
+            return ErrorHint(
+                tr(
+                    "The site's video server closes the connection to this app. Some sites only accept real browsers. Try a VPN (switch server if it fails); if it still fails, this site cannot be downloaded in the app right now.",
+                    "سائٹ کا ویڈیو سرور اس ایپ کا کنکشن بند کر دیتا ہے۔ کچھ سائٹس صرف اصل براؤزر قبول کرتی ہیں۔ VPN آزمائیں (ناکام ہو تو سرور بدلیں)؛ پھر بھی نہ چلے تو یہ سائٹ ابھی ایپ میں ڈاؤن لوڈ نہیں ہو سکتی۔",
                 ),
             )
         }

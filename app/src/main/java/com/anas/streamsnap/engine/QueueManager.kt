@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.os.SystemClock
 import com.anas.streamsnap.data.DownloadItem
 import com.anas.streamsnap.data.PLAYLIST_CONFIRM_THRESHOLD
+import com.anas.streamsnap.data.SavedLinks
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.Status
 import com.anas.streamsnap.data.qualityLabel
@@ -61,6 +62,8 @@ object QueueManager {
 
     val items = MutableStateFlow<List<DownloadItem>>(emptyList())
     val pendingPlaylists = MutableStateFlow<List<PendingPlaylist>>(emptyList())
+    /** Ids of finished videos that are being converted to MP3 right now. */
+    val converting = MutableStateFlow<Set<String>>(emptySet())
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val events: SharedFlow<String> = _events.asSharedFlow()
 
@@ -68,6 +71,8 @@ object QueueManager {
     private val fetchSem = Semaphore(2)
     private val jobs = ConcurrentHashMap<String, Job>()
     private val actions = ConcurrentHashMap<String, String>() // id -> pause | cancel | wait:<reason>
+    private val retryJobs = ConcurrentHashMap<String, Job>()   // id -> pending automatic retry
+    private const val RETRY_MARK = "↻"                         // waitReason prefix of an automatic retry wait
     private val pumpLock = Any()
     private val itemsLock = Any()
     private var saveJob: Job? = null
@@ -86,6 +91,7 @@ object QueueManager {
         inited = true
         app = ctx.applicationContext
         file = File(app.filesDir, "items.json")
+        SavedLinks.init(app)
         load()
         housekeeping()
         registerNetwork()
@@ -228,9 +234,11 @@ object QueueManager {
             }
             is FetchResult.Playlist -> handlePlaylist(id, item, res)
             is FetchResult.Error -> {
-                change(id) { it.copy(status = Status.FAILED, error = res.message) }
-                LogStore.e("fetch", "Could not read this link: ${res.message}", item.url, raw = res.raw)
-                get(id)?.let { Notifier.failed(app, it) }
+                if (!planAutoRetry(id, res.raw, res.message)) {
+                    change(id) { it.copy(status = Status.FAILED, error = res.message) }
+                    LogStore.e("fetch", "Could not read this link: ${res.message}", item.url, raw = res.raw)
+                    get(id)?.let { Notifier.failed(app, it) }
+                }
                 afterStateChange()
             }
         }
@@ -258,7 +266,7 @@ object QueueManager {
             return
         }
         LogStore.i("fetch", "Playlist \"${r.title}\" has $n video(s)", src.url)
-        if (n > PLAYLIST_CONFIRM_THRESHOLD) {
+        if (n > PLAYLIST_CONFIRM_THRESHOLD || (Settings.value.playlistAsk && n >= 2)) {
             items.update { l -> l.filter { it.id != id } }
             pendingPlaylists.update { it + PendingPlaylist(newId(), r.title, src.url, r.entries) }
             persistSoon()
@@ -291,16 +299,16 @@ object QueueManager {
         afterStateChange()
     }
 
-    /** [count] = how many to add (0 = cancel). */
-    fun confirmPlaylist(pp: PendingPlaylist, count: Int) {
+    /** [chosen] = the videos ticked in the checklist (empty = cancel). */
+    fun confirmPlaylist(pp: PendingPlaylist, chosen: List<VideoMeta>) {
         pendingPlaylists.update { l -> l.filter { it.id != pp.id } }
-        if (count <= 0) {
+        if (chosen.isEmpty()) {
             LogStore.i("queue", "Playlist \"${pp.title}\" not added", pp.sourceUrl)
             return
         }
-        LogStore.i("queue", "Adding ${minOf(count, pp.entries.size)} of ${pp.entries.size} video(s) from \"${pp.title}\"", pp.sourceUrl)
+        LogStore.i("queue", "Adding ${chosen.size} of ${pp.entries.size} video(s) from \"${pp.title}\"", pp.sourceUrl)
         startServiceIfNeeded()
-        replaceWithEntries(null, pp.entries.take(count))
+        replaceWithEntries(null, chosen)
     }
 
     // ------------------------------------------------------------------ user actions
@@ -350,6 +358,7 @@ object QueueManager {
 
     fun pause(id: String) {
         val it = get(id) ?: return
+        retryJobs.remove(id)?.cancel()
         when (it.status) {
             Status.DOWNLOADING -> { actions[id] = "pause"; Engine.cancel(id) }
             Status.QUEUED, Status.WAITING, Status.SCHEDULED -> change(id) { x -> x.copy(status = Status.PAUSED, waitReason = "") }
@@ -360,6 +369,7 @@ object QueueManager {
 
     fun resume(id: String) {
         val it = get(id) ?: return
+        retryJobs.remove(id)?.cancel()
         if (it.status == Status.PAUSED || it.status == Status.WAITING || it.status == Status.SCHEDULED) {
             change(id) { x -> x.copy(status = Status.QUEUED, waitReason = "", error = "") }
             startServiceIfNeeded()
@@ -371,11 +381,11 @@ object QueueManager {
         val it = get(id) ?: return
         if (it.status != Status.FAILED) return
         if (it.title.isBlank() && it.sizes.isEmpty()) {
-            change(id) { x -> x.copy(status = Status.FETCHING, error = "") }
+            change(id) { x -> x.copy(status = Status.FETCHING, error = "", retries = 0) }
             startServiceIfNeeded()
             startFetch(id)
         } else {
-            change(id) { x -> x.copy(status = Status.QUEUED, error = "", progress = 0f) }
+            change(id) { x -> x.copy(status = Status.QUEUED, error = "", progress = 0f, retries = 0) }
             startServiceIfNeeded()
             afterStateChange()
         }
@@ -385,7 +395,7 @@ object QueueManager {
     /** Download again from History. */
     fun redownload(id: String) {
         val it = get(id) ?: return
-        change(id) { x -> x.copy(status = Status.QUEUED, progress = 0f, filePath = "", fileSize = 0, error = "", finishedAt = 0) }
+        change(id) { x -> x.copy(status = Status.QUEUED, progress = 0f, filePath = "", fileSize = 0, error = "", finishedAt = 0, retries = 0) }
         startServiceIfNeeded()
         afterStateChange()
     }
@@ -393,6 +403,7 @@ object QueueManager {
     /** Remove from the queue (stops the download if running, removes partial files). */
     fun cancel(id: String) {
         val it = get(id) ?: return
+        retryJobs.remove(id)?.cancel()
         if (it.status == Status.DOWNLOADING) {
             actions[id] = "cancel"
             Engine.cancel(id)
@@ -473,6 +484,179 @@ object QueueManager {
         } catch (_: Throwable) { }
     }
 
+    // ------------------------------------------------------------------ extra actions (3-dot menu, select, saved links ...)
+    /** Moves a card to the top of the queue and starts it as soon as a download slot is free. */
+    fun downloadNext(id: String) {
+        val x = get(id) ?: return
+        if (x.status == Status.DONE) return
+        items.update { l ->
+            val idx = l.indexOfFirst { it.id == id }
+            if (idx <= 0) l else listOf(l[idx]) + l.subList(0, idx) + l.subList(idx + 1, l.size)
+        }
+        when (x.status) {
+            Status.PAUSED, Status.WAITING, Status.SCHEDULED -> resume(id)
+            Status.FAILED -> retry(id)
+            Status.READY -> {
+                change(id) { c -> c.copy(status = Status.QUEUED, error = "", waitReason = "") }
+                startServiceIfNeeded()
+            }
+            else -> {}
+        }
+        persistSoon()
+        afterStateChange()
+    }
+
+    /** Own file name for a video. Before the download it is used as the name; for a finished one the file is renamed. Returns an error text or null. */
+    fun rename(id: String, newName: String): String? {
+        val x = get(id) ?: return null
+        return when (x.status) {
+            Status.DONE -> renameFile(x, newName)
+            Status.DOWNLOADING -> tr("Cannot rename while it is downloading. Pause it first.", "ڈاؤن لوڈ کے دوران نام نہیں بدل سکتے۔ پہلے روکیں۔")
+            else -> {
+                change(id) { c -> c.copy(customName = Utils.safeFileName(newName)) }
+                null
+            }
+        }
+    }
+
+    private fun renameFile(x: DownloadItem, newName: String): String? {
+        val src = File(x.filePath)
+        if (x.filePath.isBlank() || !src.exists()) return tr("File is missing", "فائل موجود نہیں")
+        val clean = Utils.safeFileName(newName)
+        if (clean.isEmpty()) return tr("Enter a name", "نام لکھیں")
+        val ext = src.extension
+        val target = File(src.parentFile, if (ext.isEmpty()) clean else "$clean.$ext")
+        if (target.absolutePath == src.absolutePath) return null
+        if (target.exists()) return tr("A file with this name already exists", "اس نام کی فائل پہلے سے موجود ہے")
+        if (!src.renameTo(target)) return tr("Could not rename the file", "نام تبدیل نہیں ہو سکا")
+        change(x.id) { c -> c.copy(filePath = target.absolutePath, customName = clean) }
+        LogStore.i("queue", "Renamed file: ${x.displayTitle} -> $clean", x.url, detail = target.absolutePath)
+        return null
+    }
+
+    /** "" = follow Settings, "none" = no subtitles, else language codes like "en,ur". */
+    fun setSubs(id: String, langs: String) {
+        change(id) { c -> c.copy(subLangs = langs) }
+    }
+
+    fun pauseMany(ids: Collection<String>) {
+        ids.forEach { pause(it) }
+    }
+
+    fun resumeMany(ids: Collection<String>) {
+        for (id in ids) {
+            val x = get(id) ?: continue
+            when (x.status) {
+                Status.PAUSED, Status.WAITING, Status.SCHEDULED -> resume(id)
+                Status.READY -> startItem(id)
+                Status.FAILED -> retry(id)
+                else -> {}
+            }
+        }
+    }
+
+    fun cancelMany(ids: Collection<String>) {
+        ids.forEach { cancel(it) }
+    }
+
+    fun deleteManyWithFiles(ids: Collection<String>) {
+        ids.forEach { deleteWithFile(it) }
+    }
+
+    // ---- saved for later
+    /** Keeps the links in the "saved" list without reading or downloading them. */
+    fun saveLinksForLater(text: String): AddResult {
+        val urls = Utils.extractUrls(text)
+        if (urls.isEmpty()) return AddResult(0, 0, true)
+        val n = SavedLinks.add(urls)
+        LogStore.i("queue", "Saved $n link(s) for later", url = urls.first(), detail = urls.joinToString("\n"))
+        return AddResult(n, urls.size - n, false)
+    }
+
+    /** A card in the queue goes to the saved list (and leaves the queue). */
+    fun saveItemForLater(id: String) {
+        val x = get(id) ?: return
+        SavedLinks.add(listOf(x.url), x.title)
+        cancel(id)
+        emit(tr("Saved for later", "بعد کے لیے محفوظ"))
+    }
+
+    /** Saved links go to the download queue and leave the saved list. */
+    fun downloadSaved(urls: List<String>): AddResult {
+        if (urls.isEmpty()) return AddResult(0, 0, true)
+        val r = addLinks(urls.joinToString("\n"))
+        SavedLinks.remove(urls)
+        return r
+    }
+
+    // ---- MP3
+    /** Makes an MP3 copy of a finished video. The new MP3 appears as another finished download. */
+    fun convertToMp3(id: String) {
+        val x = get(id) ?: return
+        if (x.status != Status.DONE || x.filePath.isBlank() || x.isAudio) return
+        if (id in converting.value) return
+        if (!File(x.filePath).exists()) {
+            emit(tr("File is missing", "فائل موجود نہیں"))
+            return
+        }
+        converting.update { s -> s + id }
+        emit(tr("Converting to MP3… (can take a minute)", "MP3 میں تبدیل ہو رہی ہے… (ایک منٹ لگ سکتا ہے)"))
+        LogStore.i("convert", "Converting to MP3: ${x.displayTitle}", x.url, detail = x.filePath)
+        scope.launch {
+            val r = Engine.toMp3(app, x.filePath, "mp3-$id")
+            converting.update { s -> s - id }
+            if (r.ok) {
+                val f = File(r.filePath)
+                val mp3 = x.copy(
+                    id = newId(), quality = "audio", filePath = r.filePath, fileSize = f.length(),
+                    finishedAt = System.currentTimeMillis(), status = Status.DONE, progress = 1f, error = "",
+                )
+                items.update { l -> l + mp3 }
+                persistSoon()
+                LogStore.i("convert", "MP3 ready: ${x.displayTitle}", x.url, detail = r.filePath)
+                emit(tr("MP3 saved: ${f.name}", "MP3 محفوظ ہو گئی: ${f.name}"))
+            } else {
+                LogStore.e("convert", "MP3 conversion failed: ${r.message}", x.url, raw = r.raw.ifBlank { r.message })
+                emit(tr("MP3 conversion failed. See the Log for the exact error.", "MP3 تبدیلی ناکام۔ درست ایرر لاگ میں دیکھیں۔"))
+            }
+        }
+    }
+
+    // ---- automatic retry
+    /**
+     * A download (or page read) failed. When the error can be temporary, wait a little and try again by itself.
+     * Returns true when a retry is planned (the card then shows the countdown instead of "Failed").
+     */
+    private fun planAutoRetry(id: String, rawText: String, message: String): Boolean {
+        val p = Settings.value
+        val x = get(id) ?: return false
+        if (!p.autoRetry || x.retries >= p.autoRetryMax) return false
+        if (Engine.isPermanentError(rawText) || Engine.isPermanentError(message)) return false
+        val n = x.retries + 1
+        val limited = Engine.isRateLimited(rawText) || Engine.isRateLimited(message)
+        val secs = (if (limited) 60 else 20) * n
+        val reason = "$RETRY_MARK " + tr("Retry $n/${p.autoRetryMax} in ${secs}s", "دوبارہ کوشش $n/${p.autoRetryMax}، ${secs} سیکنڈ میں")
+        change(id) { c -> c.copy(status = Status.WAITING, waitReason = reason, retries = n, error = message, speedText = "", etaSec = -1) }
+        LogStore.w("download", "Failed, automatic retry $n/${p.autoRetryMax} in ${secs}s: ${x.displayTitle}", x.url, detail = rawText.ifBlank { message })
+        retryJobs.remove(id)?.cancel()
+        retryJobs[id] = scope.launch {
+            delay(secs * 1000L)
+            retryJobs.remove(id)
+            val cur = get(id)
+            if (cur != null && cur.status == Status.WAITING && cur.waitReason == reason) {
+                if (cur.title.isBlank() && cur.sizes.isEmpty()) {
+                    change(id) { c -> c.copy(status = Status.FETCHING, waitReason = "", error = "") }
+                    startFetch(id)
+                } else {
+                    change(id) { c -> c.copy(status = Status.QUEUED, waitReason = "", error = "") }
+                    startServiceIfNeeded()
+                    afterStateChange()
+                }
+            }
+        }
+        return true
+    }
+
     // ------------------------------------------------------------------ scheduler
     private fun afterStateChange() {
         pump()
@@ -535,7 +719,9 @@ object QueueManager {
         LogStore.i("download", "Started: ${item.displayTitle} [${qualityLabel(item.quality)}]", item.url)
         var lastUi = 0L
         var lastNote = 0L
-        val outcome = Engine.download(app, item, p) { percent, eta, line ->
+        val outcome = Engine.download(app, item, p, onPhase = { text ->
+            change(id) { it.copy(progress = 1f, speedText = text, etaSec = -1) }
+        }) { percent, eta, line ->
             val now = SystemClock.elapsedRealtime()
             val speed = Engine.parseSpeed(line)
             if ((percent >= 0f || speed != null) && now - lastUi >= 400) {
@@ -598,6 +784,7 @@ object QueueManager {
             LogStore.w("download", "Interrupted, no internet: ${item.displayTitle}", item.url, detail = Utils.netDebug(app) + "\n\n" + o.raw)
             return
         }
+        if (planAutoRetry(id, o.raw, o.message)) return
         change(id) { it.copy(status = Status.FAILED, error = o.message, speedText = "", etaSec = -1) }
         batchFailed++
         LogStore.e("download", "Download failed: ${item.displayTitle}", item.url, raw = o.raw.ifBlank { o.message })
@@ -630,10 +817,12 @@ object QueueManager {
     fun recheck() {
         val allowed = networkAllowed()
         if (allowed) {
-            val resumed = items.value.any { it.status == Status.WAITING && it.waitReason != tr("Low storage", "اسٹوریج کم ہے") }
+            val low = tr("Low storage", "اسٹوریج کم ہے")
+            // An automatic retry keeps its own delay; a network flicker must not cut it short.
+            val resumed = items.value.any { it.status == Status.WAITING && it.waitReason != low && !it.waitReason.startsWith(RETRY_MARK) }
             if (resumed) {
                 changeAll {
-                    if (it.status == Status.WAITING && it.waitReason != tr("Low storage", "اسٹوریج کم ہے"))
+                    if (it.status == Status.WAITING && it.waitReason != low && !it.waitReason.startsWith(RETRY_MARK))
                         it.copy(status = Status.QUEUED, waitReason = "") else it
                 }
                 LogStore.i("network", "Connection OK again, resuming downloads")

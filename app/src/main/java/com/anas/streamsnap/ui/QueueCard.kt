@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Card
@@ -71,7 +74,7 @@ import com.anas.streamsnap.util.Hints
 import com.anas.streamsnap.util.Utils
 
 /** The Compose context is the Activity (possibly wrapped); this finds it to ask for a tab switch. */
-private fun Context.findMainActivity(): MainActivity? {
+internal fun Context.findMainActivity(): MainActivity? {
     var c: Context? = this
     while (c is ContextWrapper) {
         if (c is MainActivity) return c
@@ -99,6 +102,10 @@ fun SwipeQueueCard(
     handle: Modifier,
     modifier: Modifier,
     onOpenLog: () -> Unit,
+    selecting: Boolean = false,
+    selected: Boolean = false,
+    onToggle: () -> Unit = {},
+    onSelect: () -> Unit = {},
 ) {
     val cur by rememberUpdatedState(item)
     val state = rememberSwipeToDismissBoxState(confirmValueChange = { v ->
@@ -111,7 +118,8 @@ fun SwipeQueueCard(
     SwipeToDismissBox(
         state = state,
         modifier = modifier,
-        enableDismissFromStartToEnd = item.status != Status.FETCHING,
+        enableDismissFromStartToEnd = item.status != Status.FETCHING && !selecting,
+        enableDismissFromEndToStart = !selecting,
         backgroundContent = {
             val dir = state.dismissDirection
             val remove = dir == SwipeToDismissBoxValue.EndToStart
@@ -143,30 +151,53 @@ fun SwipeQueueCard(
             }
         },
     ) {
-        QueueCard(item, prefs, dragging, handle, onOpenLog)
+        QueueCard(item, prefs, dragging, handle, onOpenLog, selecting, selected, onToggle, onSelect)
     }
 }
 
 @Composable
-fun QueueCard(item: DownloadItem, prefs: Prefs, dragging: Boolean, handle: Modifier, onOpenLog: () -> Unit) {
+fun QueueCard(
+    item: DownloadItem,
+    prefs: Prefs,
+    dragging: Boolean,
+    handle: Modifier,
+    onOpenLog: () -> Unit,
+    selecting: Boolean = false,
+    selected: Boolean = false,
+    onToggle: () -> Unit = {},
+    onSelect: () -> Unit = {},
+) {
     val ctx = LocalContext.current
     val progress by animateFloatAsState(item.progress, tween(450), label = "progress")
     val perVideo = prefs.qualityMode == "ask"
     val autoPick = prefs.autoStart && perVideo && item.status == Status.READY
 
     Card(
+        modifier = if (selecting) Modifier.clickable(onClick = onToggle) else Modifier,
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (dragging) 10.dp else 0.dp),
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-                Icon(
-                    Icons.Filled.DragIndicator, null,
-                    modifier = handle.size(22.dp).padding(top = 2.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Thumb(item)
+                if (selecting) {
+                    Icon(
+                        if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked, null,
+                        modifier = Modifier.size(22.dp).padding(top = 2.dp),
+                        tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.DragIndicator, null,
+                        modifier = handle.size(22.dp).padding(top = 2.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Thumb(item) {
+                    if (!selecting) QueueMenuButton(item, onSelect)
+                }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     if (item.status == Status.FETCHING && item.title.isBlank()) {
                         Text(item.url, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -186,7 +217,7 @@ fun QueueCard(item: DownloadItem, prefs: Prefs, dragging: Boolean, handle: Modif
                         StatusLine(item, autoPick, prefs)
                     }
                 }
-                Trailing(item, progress, hideForPick = autoPick)
+                if (!selecting) Trailing(item, progress, hideForPick = autoPick)
             }
 
             if (perVideo && item.status in setOf(Status.READY, Status.PAUSED, Status.FAILED, Status.QUEUED, Status.SCHEDULED, Status.WAITING)) {
@@ -263,7 +294,7 @@ private fun StatusLine(item: DownloadItem, autoPick: Boolean, prefs: Prefs) {
 }
 
 @Composable
-private fun Thumb(item: DownloadItem) {
+private fun Thumb(item: DownloadItem, overlay: @Composable () -> Unit = {}) {
     Box(
         Modifier.width(112.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
@@ -280,6 +311,7 @@ private fun Thumb(item: DownloadItem) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Box(Modifier.align(Alignment.TopEnd).padding(3.dp)) { overlay() }
         if (item.durationSec > 0) {
             Text(
                 Utils.fmtDuration(item.durationSec),

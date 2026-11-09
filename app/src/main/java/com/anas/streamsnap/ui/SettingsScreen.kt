@@ -88,6 +88,7 @@ import com.anas.streamsnap.data.QUALITY_OPTIONS
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.Status
 import com.anas.streamsnap.data.qualityLabel
+import com.anas.streamsnap.data.subLangNames
 import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.engine.Engine
 import com.anas.streamsnap.engine.QueueManager
@@ -336,7 +337,138 @@ private fun QualitySection(prefs: Prefs) {
         ) {
             Settings.update { it.copy(qualityMode = "ask") }
         }
+        CustomVideoCard(prefs)
     }
+}
+
+// ---------------------------------------------------------------- custom video settings
+private val CV_RES = listOf(0, 144, 240, 360, 480, 720, 1080)
+private val CV_FPS = listOf(0, 15, 24, 25, 30, 50, 60)
+
+private fun cvResLabel(v: Int) = if (v <= 0) tr("Original", "اصل") else "${v}P"
+private fun cvFpsLabel(v: Int) = if (v <= 0) tr("Original", "اصل") else "$v"
+private fun cvVCodecLabel(v: String) = when (v) { "h264" -> "H.264"; "h265" -> "H.265 (HEVC)"; else -> "MPEG4" }
+private fun cvACodecLabel(v: String) = if (v == "mp3") "MP3" else "AAC"
+private fun cvQualityLabel(v: Int) = when (v) {
+    1 -> tr("1 (Best, biggest file)", "1 (بہترین، بڑی فائل)")
+    5 -> tr("5 (Smallest file)", "5 (سب سے چھوٹی فائل)")
+    else -> "$v"
+}
+private fun cvFlipLabel(v: String) = when (v) {
+    "h" -> tr("Horizontal", "افقی")
+    "v" -> tr("Vertical", "عمودی")
+    else -> tr("No flip", "کوئی فلپ نہیں")
+}
+
+@Composable
+private fun CustomVideoCard(prefs: Prefs) {
+    var dlg by remember { mutableStateOf<String?>(null) }
+    SCard {
+        SwitchRow(
+            tr("Custom video settings", "کسٹم ویڈیو سیٹنگز"),
+            tr(
+                "Every video is saved with the settings below",
+                "ہر ویڈیو نیچے دی گئی سیٹنگز کے مطابق محفوظ ہوگی",
+            ),
+            prefs.cvOn,
+        ) { v -> Settings.update { it.copy(cvOn = v) } }
+        AnimatedVisibility(visible = prefs.cvOn) {
+            Column {
+                HorizontalDivider()
+                ClickRow(tr("Resolution", "ریزولوشن"), trailing = cvResLabel(prefs.cvRes)) { dlg = "res" }
+                ClickRow(tr("Frame rate", "فریم ریٹ"), trailing = cvFpsLabel(prefs.cvFps)) { dlg = "fps" }
+                ClickRow(tr("Video codec", "ویڈیو کوڈیک"), trailing = cvVCodecLabel(prefs.cvVCodec)) { dlg = "vcodec" }
+                ClickRow(tr("Audio codec", "آڈیو کوڈیک"), trailing = cvACodecLabel(prefs.cvACodec)) { dlg = "acodec" }
+                ClickRow(tr("Video quality", "ویڈیو کوالٹی"), trailing = "${prefs.cvQuality}") { dlg = "quality" }
+                ClickRow(tr("Video rotation", "ویڈیو روٹیشن"), trailing = "${prefs.cvRotate}°") { dlg = "rotate" }
+                ClickRow(tr("Video flip", "ویڈیو فلپ"), trailing = cvFlipLabel(prefs.cvFlip)) { dlg = "flip" }
+                SwitchRow(
+                    tr("Compress", "کمپریس"),
+                    tr("Smaller file: lower quality and lower audio bitrate", "چھوٹی فائل: کم کوالٹی اور کم آڈیو بٹ ریٹ"),
+                    prefs.cvCompress,
+                ) { v -> Settings.update { it.copy(cvCompress = v) } }
+                HorizontalDivider()
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Hint(
+                        tr(
+                            "Applies to video downloads only; MP3 and M4A are not changed. The video is converted on your phone right after it downloads, so it takes extra time. The resolution here replaces the quality chosen above. If a setting fails, the video is kept as downloaded and the Log shows why.",
+                            "صرف ویڈیو ڈاؤن لوڈز پر لاگو ہوتی ہے؛ MP3 اور M4A میں تبدیلی نہیں ہوتی۔ ڈاؤن لوڈ کے فوراً بعد ویڈیو آپ کے فون پر کنورٹ ہوتی ہے، اس لیے زیادہ وقت لگتا ہے۔ یہاں کی ریزولوشن اوپر والی کوالٹی کی جگہ لے لیتی ہے۔ اگر کوئی سیٹنگ ناکام ہو تو ویڈیو جیسی ڈاؤن لوڈ ہوئی ویسی رہتی ہے اور لاگ میں وجہ دکھتی ہے۔",
+                        ),
+                    )
+                    Hint(
+                        tr(
+                            "If this phone's engine has no H.264 / H.265 encoder, MPEG4 is used instead.",
+                            "اگر اس فون کے انجن میں H.264 / H.265 انکوڈر نہ ہو تو MPEG4 استعمال ہوگا۔",
+                        ),
+                    )
+                    TextButton(
+                        onClick = {
+                            val d = Prefs()
+                            Settings.update {
+                                it.copy(
+                                    cvRes = d.cvRes, cvFps = d.cvFps, cvVCodec = d.cvVCodec, cvACodec = d.cvACodec,
+                                    cvQuality = d.cvQuality, cvRotate = d.cvRotate, cvFlip = d.cvFlip, cvCompress = d.cvCompress,
+                                )
+                            }
+                        },
+                    ) { Text(tr("Reset to default (240P, 24 fps, MPEG4, AAC)", "ڈیفالٹ پر واپس (240P، 24 fps، MPEG4، AAC)")) }
+                }
+            }
+        }
+    }
+    when (dlg) {
+        "res" -> PickDialog(
+            tr("Resolution", "ریزولوشن"), CV_RES.map { it to cvResLabel(it) }, prefs.cvRes,
+            onPick = { v -> Settings.update { it.copy(cvRes = v) }; dlg = null }, onDismiss = { dlg = null },
+        )
+        "fps" -> PickDialog(
+            tr("Frame rate", "فریم ریٹ"), CV_FPS.map { it to cvFpsLabel(it) }, prefs.cvFps,
+            onPick = { v -> Settings.update { it.copy(cvFps = v) }; dlg = null }, onDismiss = { dlg = null },
+        )
+        "vcodec" -> PickDialog(
+            tr("Video codec", "ویڈیو کوڈیک"), listOf("mpeg4", "h264", "h265").map { it to cvVCodecLabel(it) }, prefs.cvVCodec,
+            onPick = { v -> Settings.update { it.copy(cvVCodec = v) }; dlg = null }, onDismiss = { dlg = null },
+        )
+        "acodec" -> PickDialog(
+            tr("Audio codec", "آڈیو کوڈیک"), listOf("aac", "mp3").map { it to cvACodecLabel(it) }, prefs.cvACodec,
+            onPick = { v -> Settings.update { it.copy(cvACodec = v) }; dlg = null }, onDismiss = { dlg = null },
+        )
+        "quality" -> PickDialog(
+            tr("Video quality", "ویڈیو کوالٹی"), (1..5).map { it to cvQualityLabel(it) }, prefs.cvQuality,
+            onPick = { v -> Settings.update { it.copy(cvQuality = v) }; dlg = null }, onDismiss = { dlg = null },
+        )
+        "rotate" -> PickDialog(
+            tr("Video rotation", "ویڈیو روٹیشن"), listOf(0, 90, 180, 270).map { it to "$it°" }, prefs.cvRotate,
+            onPick = { v -> Settings.update { it.copy(cvRotate = v) }; dlg = null }, onDismiss = { dlg = null },
+        )
+        "flip" -> PickDialog(
+            tr("Video flip", "ویڈیو فلپ"), listOf("none", "h", "v").map { it to cvFlipLabel(it) }, prefs.cvFlip,
+            onPick = { v -> Settings.update { it.copy(cvFlip = v) }; dlg = null }, onDismiss = { dlg = null },
+        )
+    }
+}
+
+@Composable
+private fun <T> PickDialog(title: String, options: List<Pair<T, String>>, current: T, onPick: (T) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                options.forEach { (value, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onPick(value) }.padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = value == current, onClick = { onPick(value) })
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel", "منسوخ")) } },
+    )
 }
 
 // ============================================================================ download options
@@ -372,6 +504,39 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
         }
         HorizontalDivider()
         SwitchRow(
+            tr("Auto-retry failed downloads", "ناکام ڈاؤن لوڈ خود دوبارہ"),
+            tr(
+                "A failed download tries again by itself after a short wait. Private, removed or login-only videos are not retried.",
+                "ناکام ڈاؤن لوڈ تھوڑے انتظار کے بعد خود دوبارہ کوشش کرتی ہے۔ پرائیویٹ، ہٹائی گئی یا لاگ اِن والی ویڈیوز دوبارہ نہیں آزمائی جاتیں۔",
+            ),
+            prefs.autoRetry,
+        ) { v -> Settings.update { it.copy(autoRetry = v) } }
+        if (prefs.autoRetry) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Text(tr("Retries per video", "ہر ویڈیو کی کوششیں"), style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    (1..4).forEach { n ->
+                        FilterChip(
+                            selected = prefs.autoRetryMax == n,
+                            onClick = { Settings.update { it.copy(autoRetryMax = n) } },
+                            label = { Text("$n") },
+                        )
+                    }
+                }
+            }
+        }
+        HorizontalDivider()
+        SwitchRow(
+            tr("Playlist checklist", "پلے لسٹ چیک لسٹ"),
+            tr(
+                "When you paste a playlist, choose which videos to download. Off: all videos (up to 20) are added.",
+                "پلے لسٹ پیسٹ کرنے پر چنیں کون سی ویڈیوز ڈاؤن لوڈ ہوں۔ آف: تمام ویڈیوز (20 تک) شامل ہو جاتی ہیں۔",
+            ),
+            prefs.playlistAsk,
+        ) { v -> Settings.update { it.copy(playlistAsk = v) } }
+        HorizontalDivider()
+        SwitchRow(
             tr("YouTube fast mode", "یوٹیوب فاسٹ موڈ"),
             tr(
                 "On: YouTube links use the quick route (about a minute, qualities up to 1080p). Off: slow (several minutes on this phone) but the full quality list. If the quick route fails, the slow one is used automatically.",
@@ -387,6 +552,15 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
             subtitle = prefs.folder,
         ) { dlg = "folder" }
         HorizontalDivider()
+        SwitchRow(
+            tr("Site-wise folders", "سائٹ کے مطابق فولڈرز"),
+            tr(
+                "Each site gets its own folder inside the download folder (YouTube, Instagram ...)",
+                "ہر سائٹ کا ڈاؤن لوڈ فولڈر کے اندر الگ فولڈر بنتا ہے (YouTube، Instagram ...)",
+            ),
+            prefs.siteFolders,
+        ) { v -> Settings.update { it.copy(siteFolders = v) } }
+        HorizontalDivider()
         ClickRow(
             tr("File name format", "فائل نام کا انداز"),
             subtitle = prefs.nameTemplate,
@@ -400,9 +574,14 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
         HorizontalDivider()
         SwitchRow(
             tr("Save subtitles", "سب ٹائٹلز محفوظ کریں"),
-            tr("English and Urdu subtitles as .srt when available", "انگریزی اور اردو سب ٹائٹلز (.srt) اگر دستیاب ہوں"),
+            tr("Saved as .srt when the site has them. Pick the languages below.", "سائٹ پر ہوں تو .srt میں محفوظ ہوں گے۔ زبانیں نیچے چنیں۔"),
             prefs.saveSubs,
         ) { v -> Settings.update { it.copy(saveSubs = v) } }
+        HorizontalDivider()
+        ClickRow(
+            tr("Subtitle languages", "سب ٹائٹل زبانیں"),
+            subtitle = subLangNames(prefs.subLangs).ifBlank { tr("none", "کوئی نہیں") },
+        ) { dlg = "subs" }
         HorizontalDivider()
         SwitchRow(
             tr("Scheduled download", "شیڈول ڈاؤن لوڈ"),
@@ -458,6 +637,11 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
             },
             onDismiss = { dlg = null },
         )
+        "subs" -> SubLangsDialog(
+            current = prefs.subLangs,
+            onSave = { v -> Settings.update { it.copy(subLangs = v) }; dlg = null },
+            onDismiss = { dlg = null },
+        )
         "time" -> TimeDialog(
             hour = prefs.scheduleHour, minute = prefs.scheduleMinute,
             onSave = { h, m ->
@@ -468,6 +652,28 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
             onDismiss = { dlg = null },
         )
     }
+}
+
+@Composable
+private fun SubLangsDialog(current: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var sel by remember { mutableStateOf(current.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(tr("Subtitle languages", "سب ٹائٹل زبانیں")) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                SubLangChecklist(sel) { sel = it }
+                Text(
+                    tr("A single video can use other languages from its three-dot menu.", "کسی ایک ویڈیو کے لیے تین نقطوں والے مینو سے دوسری زبانیں چن سکتے ہیں۔"),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(sel.joinToString(",").ifEmpty { "en" }) }) { Text(tr("Save", "محفوظ")) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel", "منسوخ")) } },
+    )
 }
 
 @Composable

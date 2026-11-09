@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -30,7 +31,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -45,6 +52,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,6 +80,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.anas.streamsnap.R
 import com.anas.streamsnap.data.DownloadItem
+import com.anas.streamsnap.data.SavedLinks
 import com.anas.streamsnap.data.QUALITY_OPTIONS
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.Status
@@ -88,11 +97,38 @@ fun HomeScreen(activity: MainActivity) {
     val clip by activity.clipLink.collectAsState()
     val queue = remember(all) { all.filter { it.status != Status.DONE } }
     val done = remember(all) { all.filter { it.status == Status.DONE }.sortedByDescending { it.finishedAt } }
+    val saved by SavedLinks.items.collectAsState()
 
     var input by rememberSaveable { mutableStateOf("") }
     var section by rememberSaveable { mutableStateOf(0) } // 0 = Downloading, 1 = Downloaded
     var confirmDelete by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    var showSaved by remember { mutableStateOf(false) }
+    // Select several (both sections)
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmBulk by remember { mutableStateOf(false) }
+    // Downloaded: search + sort
+    var dQuery by rememberSaveable { mutableStateOf("") }
+    var dSort by rememberSaveable { mutableStateOf(0) }       // 0 date, 1 size, 2 name
+    var dAsc by rememberSaveable { mutableStateOf(false) }
+    val doneShown = remember(done, dQuery, dSort, dAsc) {
+        val q = dQuery.trim()
+        val f = if (q.isEmpty()) done else done.filter { d ->
+            d.displayTitle.contains(q, true) || d.site.contains(q, true) || d.uploader.contains(q, true)
+        }
+        val cmp: Comparator<DownloadItem> = when (dSort) {
+            1 -> compareBy<DownloadItem> { it.fileSize }
+            2 -> compareBy<DownloadItem> { it.displayTitle.lowercase() }
+            else -> compareBy<DownloadItem> { it.finishedAt }
+        }
+        f.sortedWith(if (dAsc) cmp else cmp.reversed())
+    }
+    val pool = if (section == 0) queue else doneShown
+    val selIds = pool.filter { it.id in selected }.map { it.id }
+    fun toggle(id: String) { selected = if (id in selected) selected - id else selected + id }
+    fun startSelect(id: String?) { selecting = true; selected = if (id == null) emptySet() else setOf(id) }
+    fun endSelect() { selecting = false; selected = emptySet() }
     val listState = rememberLazyListState()
     var draggingId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
@@ -132,6 +168,19 @@ fun HomeScreen(activity: MainActivity) {
             item(key = "add") {
                 AddCard(
                     input = input,
+                    onSaveLater = {
+                        val r = QueueManager.saveLinksForLater(input)
+                        if (!r.noLinks) input = ""
+                        Toast.makeText(
+                            ctx,
+                            when {
+                                r.noLinks -> tr("No link found", "کوئی لنک نہیں ملا")
+                                r.added == 0 -> tr("Already saved", "پہلے سے محفوظ ہے")
+                                else -> tr("Saved for later: ${r.added}", "بعد کے لیے محفوظ: ${r.added}")
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
                     onInput = { new ->
                         val grew = new.length - input.length
                         input = new
@@ -167,18 +216,37 @@ fun HomeScreen(activity: MainActivity) {
                 }
             }
 
+            if (saved.isNotEmpty()) {
+                item(key = "saved") {
+                    AssistChip(
+                        onClick = { showSaved = true },
+                        label = { Text(tr("Saved for later (${saved.size})", "بعد کے لیے محفوظ (${saved.size})")) },
+                        leadingIcon = { Icon(Icons.Filled.Bookmark, null, Modifier.size(18.dp)) },
+                    )
+                }
+            }
+
             item(key = "sections") {
                 SectionSwitch(
                     selected = section,
                     left = tr("Downloading (${queue.size})", "ڈاؤن لوڈ ہو رہی (${queue.size})"),
                     right = tr("Downloaded (${done.size})", "ڈاؤن لوڈ شدہ (${done.size})"),
-                    onSelect = { section = it },
+                    onSelect = { section = it; endSelect() },
                 )
             }
 
             if (section == 0) {
                 if (queue.isNotEmpty()) {
-                    item(key = "controls") { ControlsRow(queue.map { it.status }, onClear = { confirmClear = true }) }
+                    item(key = "controls") {
+                        ControlsRow(
+                            queue.map { it.status },
+                            onClear = { confirmClear = true },
+                            onCopyAll = {
+                                copyToClipboard(ctx, "links", queue.joinToString("\n") { it.url })
+                            },
+                            onSelect = { startSelect(null) },
+                        )
+                    }
                 }
 
                 if (queue.isEmpty()) {
@@ -207,33 +275,112 @@ fun HomeScreen(activity: MainActivity) {
                         modifier = if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = dragOffset }
                         else Modifier.animateItem(),
                         onOpenLog = { activity.navRequest.value = "logs" },
+                        selecting = selecting,
+                        selected = item.id in selected,
+                        onToggle = { toggle(item.id) },
+                        onSelect = { startSelect(item.id) },
                     )
                 }
             } else {
                 if (done.isEmpty()) {
                     item(key = "doneEmpty") { DownloadedEmpty() }
                 } else {
-                    item(key = "doneInfo") {
-                        Text(
-                            tr(
-                                "${done.size} downloads · ${Utils.fmtBytes(done.sumOf { it.fileSize })}",
-                                "${done.size} ڈاؤن لوڈ · ${Utils.fmtBytes(done.sumOf { it.fileSize })}",
+                    item(key = "doneTools") {
+                        DownloadedTools(
+                            query = dQuery,
+                            onQuery = { dQuery = it },
+                            sort = dSort,
+                            asc = dAsc,
+                            onSort = { k -> if (dSort == k) dAsc = !dAsc else { dSort = k; dAsc = (k == 2) } },
+                            onSelect = { startSelect(null) },
+                            info = tr(
+                                "${doneShown.size} of ${done.size} downloads · ${Utils.fmtBytes(doneShown.sumOf { it.fileSize })}",
+                                "${done.size} میں سے ${doneShown.size} ڈاؤن لوڈ · ${Utils.fmtBytes(doneShown.sumOf { it.fileSize })}",
                             ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    items(done, key = { it.id }) { d ->
+                    if (doneShown.isEmpty()) {
+                        item(key = "doneNoMatch") {
+                            Text(
+                                tr("Nothing matches your search", "تلاش سے کچھ نہیں ملا"),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 16.dp),
+                            )
+                        }
+                    }
+                    items(doneShown, key = { it.id }) { d ->
                         DownloadedCard(
                             item = d,
-                            all = done,
+                            all = doneShown,
                             onAskDelete = { confirmDelete = it },
                             onAgain = { section = 0 },
+                            selectMode = selecting,
+                            selected = d.id in selected,
+                            onToggle = { toggle(d.id) },
+                            onSelectStart = { startSelect(d.id) },
                         )
                     }
                 }
             }
         }
+        if (selecting) {
+            val chosen = pool.filter { it.id in selected }
+            SelectionBar(
+                count = selIds.size,
+                total = pool.size,
+                onAll = { selected = if (selIds.size == pool.size) emptySet() else pool.map { it.id }.toSet() },
+                onClose = { endSelect() },
+            ) {
+                if (section == 0) {
+                    FilledTonalButton(enabled = selIds.isNotEmpty(), onClick = { QueueManager.pauseMany(selIds) }) { Text(tr("Pause", "روکیں")) }
+                    FilledTonalButton(enabled = selIds.isNotEmpty(), onClick = { QueueManager.resumeMany(selIds) }) { Text(tr("Resume", "شروع")) }
+                    OutlinedButton(
+                        enabled = selIds.isNotEmpty(),
+                        onClick = { copyToClipboard(ctx, "links", chosen.joinToString("\n") { it.url }) },
+                    ) { Text(tr("Copy links", "لنک کاپی")) }
+                } else {
+                    FilledTonalButton(enabled = selIds.isNotEmpty(), onClick = { shareFiles(ctx, chosen) }) { Text(tr("Share", "شیئر")) }
+                    OutlinedButton(
+                        enabled = selIds.isNotEmpty(),
+                        onClick = { copyToClipboard(ctx, "links", chosen.joinToString("\n") { it.url }) },
+                    ) { Text(tr("Copy links", "لنک کاپی")) }
+                }
+                OutlinedButton(enabled = selIds.isNotEmpty(), onClick = { confirmBulk = true }) {
+                    Text(
+                        if (section == 0) tr("Remove", "ہٹائیں") else tr("Delete files", "فائلیں حذف کریں"),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+
+    if (showSaved) SavedLinksDialog { showSaved = false }
+
+    if (confirmBulk) {
+        AlertDialog(
+            onDismissRequest = { confirmBulk = false },
+            title = {
+                Text(
+                    if (section == 0) tr("Remove ${selIds.size} item(s)?", "${selIds.size} آئٹم ہٹائیں؟")
+                    else tr("Delete ${selIds.size} file(s)?", "${selIds.size} فائلیں حذف کریں؟"),
+                )
+            },
+            text = {
+                Text(
+                    if (section == 0) tr("They are removed from the queue and running downloads stop.", "یہ قطار سے ہٹ جائیں گی اور چلتی ڈاؤن لوڈز رک جائیں گی۔")
+                    else tr("The files are deleted from your phone.", "فائلیں آپ کے فون سے حذف ہو جائیں گی۔"),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (section == 0) QueueManager.cancelMany(selIds) else QueueManager.deleteManyWithFiles(selIds)
+                    confirmBulk = false
+                    endSelect()
+                }) { Text(if (section == 0) tr("Remove", "ہٹائیں") else tr("Delete", "حذف کریں")) }
+            },
+            dismissButton = { TextButton(onClick = { confirmBulk = false }) { Text(tr("Cancel", "منسوخ")) } },
+        )
     }
 
     DeleteFileDialog(confirmDelete) { confirmDelete = null }
@@ -315,7 +462,7 @@ private fun HomeHeader() {
 
 // ----------------------------------------------------------------------------------- cards
 @Composable
-private fun AddCard(input: String, onInput: (String) -> Unit, onAdd: () -> Unit, onPaste: () -> Unit) {
+private fun AddCard(input: String, onInput: (String) -> Unit, onAdd: () -> Unit, onPaste: () -> Unit, onSaveLater: () -> Unit) {
     val prefs by Settings.state.collectAsState()
     Card(
         shape = MaterialTheme.shapes.extraLarge,
@@ -343,6 +490,9 @@ private fun AddCard(input: String, onInput: (String) -> Unit, onAdd: () -> Unit,
                     Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
                     Spacer(Modifier.size(8.dp))
                     Text(tr("Add", "شامل کریں"))
+                }
+                IconButton(onClick = onSaveLater, enabled = input.isNotBlank()) {
+                    Icon(Icons.Filled.Bookmark, contentDescription = tr("Save for later", "بعد کے لیے محفوظ"))
                 }
             }
             Text(
@@ -379,7 +529,7 @@ private fun ClipboardCard(text: String, modifier: Modifier, onAdd: () -> Unit, o
 }
 
 @Composable
-private fun ControlsRow(statuses: List<Status>, onClear: () -> Unit) {
+private fun ControlsRow(statuses: List<Status>, onClear: () -> Unit, onCopyAll: () -> Unit, onSelect: () -> Unit) {
     val prefs by Settings.state.collectAsState()
     val anyRunning = statuses.any { it == Status.DOWNLOADING || it == Status.QUEUED }
     val anyPaused = statuses.any { it == Status.PAUSED || it == Status.WAITING }
@@ -399,7 +549,80 @@ private fun ControlsRow(statuses: List<Status>, onClear: () -> Unit) {
         if (anyPaused) {
             FilledTonalButton(onClick = { QueueManager.resumeAll() }) { Text(tr("Resume all", "سب شروع کریں")) }
         }
+        OutlinedButton(onClick = onSelect) { Text(tr("Select", "منتخب کریں")) }
+        OutlinedButton(onClick = onCopyAll) { Text(tr("Copy all links", "تمام لنک کاپی")) }
         OutlinedButton(onClick = onClear) { Text(tr("Clear all", "سب ہٹائیں")) }
+    }
+}
+
+/** Bottom bar while several cards are being selected. [actions] are the buttons for the current section. */
+@Composable
+private fun SelectionBar(count: Int, total: Int, onAll: () -> Unit, onClose: () -> Unit, actions: @Composable () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 3.dp) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    tr("$count selected", "$count منتخب"),
+                    modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold,
+                )
+                TextButton(onClick = onAll) {
+                    Text(if (total > 0 && count == total) tr("Select none", "کوئی نہیں") else tr("Select all", "سب چنیں"))
+                }
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = tr("Done", "مکمل")) }
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions()
+            }
+        }
+    }
+}
+
+/** Search box, sort chips and "Select" above the finished downloads. */
+@Composable
+private fun DownloadedTools(
+    query: String,
+    onQuery: (String) -> Unit,
+    sort: Int,
+    asc: Boolean,
+    onSort: (Int) -> Unit,
+    onSelect: () -> Unit,
+    info: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            modifier = Modifier.fillMaxWidth().tapToType(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Filled.Search, null) },
+            trailingIcon = if (query.isNotEmpty()) {
+                { IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Close, contentDescription = tr("Clear", "صاف کریں")) } }
+            } else null,
+            placeholder = { Text(tr("Search downloads", "ڈاؤن لوڈز تلاش کریں")) },
+            shape = MaterialTheme.shapes.extraLarge,
+        )
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(0 to tr("Date", "تاریخ"), 1 to tr("Size", "سائز"), 2 to tr("Name", "نام")).forEach { (k, label) ->
+                FilterChip(
+                    selected = sort == k,
+                    onClick = { onSort(k) },
+                    label = { Text(label) },
+                    trailingIcon = if (sort == k) {
+                        { Icon(if (asc) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward, null, Modifier.size(16.dp)) }
+                    } else null,
+                )
+            }
+            AssistChip(
+                onClick = onSelect,
+                label = { Text(tr("Select", "منتخب کریں")) },
+                leadingIcon = { Icon(Icons.Filled.CheckCircle, null, Modifier.size(18.dp)) },
+            )
+        }
+        Text(info, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

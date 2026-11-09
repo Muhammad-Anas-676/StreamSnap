@@ -39,6 +39,13 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings as SettingsIcon
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.text.style.TextOverflow
+import com.anas.streamsnap.util.Utils
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -308,30 +315,62 @@ fun MainScaffold(activity: MainActivity) {
     pending.firstOrNull()?.let { PlaylistDialog(it) }
 }
 
+/** Checklist of the videos in a pasted playlist: tick the ones to download. */
 @Composable
 private fun PlaylistDialog(pp: PendingPlaylist) {
-    val n = pp.entries.size
+    var picked by remember(pp.id) { mutableStateOf(pp.entries.indices.toSet()) }
     AlertDialog(
-        onDismissRequest = { QueueManager.confirmPlaylist(pp, 0) },
-        title = { Text(tr("Big playlist found", "بڑی پلے لسٹ ملی")) },
+        onDismissRequest = { QueueManager.confirmPlaylist(pp, emptyList()) },
+        title = { Text(tr("Choose videos", "ویڈیوز چنیں")) },
         text = {
-            Text(
-                tr(
-                    "\"${pp.title}\" has $n videos. This can use a lot of data and space. Add them?",
-                    "\"${pp.title}\" میں $n ویڈیوز ہیں۔ اس میں بہت ڈیٹا اور اسپیس لگ سکتی ہے۔ شامل کریں؟",
+            Column {
+                Text(
+                    "\"${pp.title}\" · ${pp.entries.size} " + tr("videos", "ویڈیوز"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
                 )
-            )
+                Row {
+                    TextButton(onClick = { picked = pp.entries.indices.toSet() }) { Text(tr("All", "سب")) }
+                    TextButton(onClick = { picked = emptySet() }) { Text(tr("None", "کوئی نہیں")) }
+                }
+                LazyColumn(Modifier.heightIn(max = 340.dp)) {
+                    itemsIndexed(pp.entries) { i, m ->
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clickable { picked = if (i in picked) picked - i else picked + i }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Checkbox(checked = i in picked, onCheckedChange = null)
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    m.title.ifBlank { m.url },
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                if (m.durationSec > 0) {
+                                    Text(
+                                        Utils.fmtDuration(m.durationSec),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         },
         confirmButton = {
-            TextButton(onClick = { QueueManager.confirmPlaylist(pp, n) }) { Text(tr("Add all $n", "سب $n شامل کریں")) }
+            TextButton(
+                enabled = picked.isNotEmpty(),
+                onClick = { QueueManager.confirmPlaylist(pp, pp.entries.filterIndexed { i, _ -> i in picked }) },
+            ) { Text(tr("Add (${picked.size})", "شامل کریں (${picked.size})")) }
         },
         dismissButton = {
-            Row {
-                TextButton(onClick = { QueueManager.confirmPlaylist(pp, PLAYLIST_CONFIRM_THRESHOLD) }) {
-                    Text(tr("First $PLAYLIST_CONFIRM_THRESHOLD", "پہلی $PLAYLIST_CONFIRM_THRESHOLD"))
-                }
-                TextButton(onClick = { QueueManager.confirmPlaylist(pp, 0) }) { Text(tr("Cancel", "منسوخ")) }
-            }
+            TextButton(onClick = { QueueManager.confirmPlaylist(pp, emptyList()) }) { Text(tr("Cancel", "منسوخ")) }
         },
     )
 }

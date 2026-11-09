@@ -103,6 +103,13 @@ import com.anas.streamsnap.util.Utils
 private object BrowserMemory {
     var lastUrl: String = ""
     val sniffed: MutableList<String> = ArrayList()
+    /** A link another screen wants opened (e.g. "Open in Browser" on a queue card). Taken once by the Browser tab. */
+    var openRequest: String? = null
+}
+
+/** Asks the Browser tab to open [url] the next time it is shown. */
+internal fun requestBrowserOpen(url: String) {
+    BrowserMemory.openRequest = url
 }
 
 private val MEDIA_EXT = listOf(".m3u8", ".mpd", ".mp4", ".webm", ".m4v", ".mov")
@@ -156,10 +163,11 @@ fun BrowserScreen() {
     val bgColor = MaterialTheme.colorScheme.background
 
     var webView by remember { mutableStateOf<WebView?>(null) }
-    var showWeb by remember { mutableStateOf(BrowserMemory.lastUrl.isNotEmpty()) }
-    var pendingUrl by remember { mutableStateOf("") }
-    var curUrl by remember { mutableStateOf(BrowserMemory.lastUrl) }
-    var urlText by remember { mutableStateOf(BrowserMemory.lastUrl) }
+    val openReq = remember { BrowserMemory.openRequest.also { BrowserMemory.openRequest = null } }
+    var showWeb by remember { mutableStateOf(openReq != null || BrowserMemory.lastUrl.isNotEmpty()) }
+    var pendingUrl by remember { mutableStateOf(openReq ?: "") }
+    var curUrl by remember { mutableStateOf(openReq ?: BrowserMemory.lastUrl) }
+    var urlText by remember { mutableStateOf(openReq ?: BrowserMemory.lastUrl) }
     var editing by remember { mutableStateOf(false) }
     var progress by remember { mutableIntStateOf(0) }
     var canBack by remember { mutableStateOf(false) }

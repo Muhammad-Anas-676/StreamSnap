@@ -26,8 +26,23 @@ data class Prefs(
     val nameTemplate: String = "%(title).120B.%(ext)s",
     val defaultQuality: String = "best", // best | 1080 | 720 | 480 | 360 | audio
     val qualityMode: String = "fixed",   // fixed = one quality for all videos, ask = pick per video
+    // Custom video settings: when on, every video is saved with these settings (defaults = the "Video Converter" screen)
+    val cvOn: Boolean = false,
+    val cvRes: Int = 240,                // short side in pixels, 0 = keep the original
+    val cvFps: Int = 24,                 // 0 = keep the original
+    val cvVCodec: String = "mpeg4",      // mpeg4 | h264 | h265
+    val cvACodec: String = "aac",        // aac | mp3
+    val cvQuality: Int = 3,              // 1 = best ... 5 = smallest
+    val cvRotate: Int = 0,               // 0 | 90 | 180 | 270
+    val cvFlip: String = "none",         // none | h | v
+    val cvCompress: Boolean = false,
     val saveThumb: Boolean = false,
     val saveSubs: Boolean = false,
+    val subLangs: String = "en,ur",      // subtitle languages (codes, comma separated)
+    val autoRetry: Boolean = true,       // failed downloads try again by themselves (not for private/removed videos)
+    val autoRetryMax: Int = 2,
+    val siteFolders: Boolean = false,    // put downloads in a folder per site (YouTube, Instagram ...)
+    val playlistAsk: Boolean = true,     // show a checklist when a playlist is pasted
     val hiddenFolder: Boolean = false,
     val useCookies: Boolean = false,
     val scheduleEnabled: Boolean = false,
@@ -89,8 +104,22 @@ object Settings {
             nameTemplate = sp.getString("nameTemplate", d.nameTemplate) ?: d.nameTemplate,
             defaultQuality = sp.getString("defaultQuality", d.defaultQuality) ?: d.defaultQuality,
             qualityMode = sp.getString("qualityMode", d.qualityMode) ?: d.qualityMode,
+            cvOn = sp.getBoolean("cvOn", d.cvOn),
+            cvRes = sp.getInt("cvRes", d.cvRes),
+            cvFps = sp.getInt("cvFps", d.cvFps),
+            cvVCodec = sp.getString("cvVCodec", d.cvVCodec) ?: d.cvVCodec,
+            cvACodec = sp.getString("cvACodec", d.cvACodec) ?: d.cvACodec,
+            cvQuality = sp.getInt("cvQuality", d.cvQuality).coerceIn(1, 5),
+            cvRotate = sp.getInt("cvRotate", d.cvRotate),
+            cvFlip = sp.getString("cvFlip", d.cvFlip) ?: d.cvFlip,
+            cvCompress = sp.getBoolean("cvCompress", d.cvCompress),
             saveThumb = sp.getBoolean("saveThumb", d.saveThumb),
             saveSubs = sp.getBoolean("saveSubs", d.saveSubs),
+            subLangs = sp.getString("subLangs", d.subLangs) ?: d.subLangs,
+            autoRetry = sp.getBoolean("autoRetry", d.autoRetry),
+            autoRetryMax = sp.getInt("autoRetryMax", d.autoRetryMax).coerceIn(1, 5),
+            siteFolders = sp.getBoolean("siteFolders", d.siteFolders),
+            playlistAsk = sp.getBoolean("playlistAsk", d.playlistAsk),
             hiddenFolder = sp.getBoolean("hiddenFolder", d.hiddenFolder),
             useCookies = sp.getBoolean("useCookies", d.useCookies),
             scheduleEnabled = sp.getBoolean("scheduleEnabled", d.scheduleEnabled),
@@ -136,8 +165,22 @@ object Settings {
             .putString("nameTemplate", p.nameTemplate)
             .putString("defaultQuality", p.defaultQuality)
             .putString("qualityMode", p.qualityMode)
+            .putBoolean("cvOn", p.cvOn)
+            .putInt("cvRes", p.cvRes)
+            .putInt("cvFps", p.cvFps)
+            .putString("cvVCodec", p.cvVCodec)
+            .putString("cvACodec", p.cvACodec)
+            .putInt("cvQuality", p.cvQuality)
+            .putInt("cvRotate", p.cvRotate)
+            .putString("cvFlip", p.cvFlip)
+            .putBoolean("cvCompress", p.cvCompress)
             .putBoolean("saveThumb", p.saveThumb)
             .putBoolean("saveSubs", p.saveSubs)
+            .putString("subLangs", p.subLangs)
+            .putBoolean("autoRetry", p.autoRetry)
+            .putInt("autoRetryMax", p.autoRetryMax)
+            .putBoolean("siteFolders", p.siteFolders)
+            .putBoolean("playlistAsk", p.playlistAsk)
             .putBoolean("hiddenFolder", p.hiddenFolder)
             .putBoolean("useCookies", p.useCookies)
             .putBoolean("scheduleEnabled", p.scheduleEnabled)

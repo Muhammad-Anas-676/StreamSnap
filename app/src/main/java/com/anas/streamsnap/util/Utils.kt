@@ -163,6 +163,10 @@ object Utils {
             (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && !cm.isActiveNetworkMetered)
     }
 
+    /** A name that is safe as a file name on Android storage (no / \\ : * ? " < > |). */
+    fun safeFileName(s: String): String =
+        s.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), " ").replace(Regex("\\s+"), " ").trim().trim('.').trim().take(150)
+
     fun mimeOf(path: String): String = when (path.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
         "mp4", "m4v" -> "video/mp4"
         "mkv" -> "video/x-matroska"
