@@ -441,11 +441,14 @@ object Engine {
     private val destRx = Regex("""(?:\[download] Destination:|\[ExtractAudio] Destination:)\s*(.+)$""")
     private val mergeRx = Regex("""\[Merger] Merging formats into "(.+)"""")
     private val existsRx = Regex("""\[download]\s+(.+?)\s+has already been downloaded""")
+    /** yt-dlp finishes in the hidden temp folder, then moves the file to the Download folder and says so here. */
+    private val moveRx = Regex("""\[MoveFiles] Moving file ".+" to "(.+)"$""")
     private val speedRx = Regex("""\bat\s+([\d.,]+\s*[KMGT]?i?B/s)""")
 
     fun parseSpeed(line: String): String? = speedRx.find(line)?.groupValues?.get(1)?.replace(" ", "")
 
     private fun pathFromLine(line: String): String? {
+        moveRx.find(line.trim())?.let { return it.groupValues[1] }
         mergeRx.find(line)?.let { return it.groupValues[1] }
         destRx.find(line.trim())?.let { return it.groupValues[1].trim() }
         existsRx.find(line)?.let { return it.groupValues[1].trim() }
@@ -573,6 +576,8 @@ object Engine {
         req.addOption("--no-mtime")
         req.addOption("-N", "4")
         req.addOption("-P", dir.absolutePath)
+        // Half-finished pieces (.part, stream fragments) stay in a hidden temp folder, one per item, so the Download folder stays clean.
+        req.addOption("--paths", "temp:" + File(Utils.tempRoot(ctx), item.id).absolutePath)
         req.addOption("-o", outputTemplate(item, p))
         applyQuality(req, effectiveQuality(item, p))
         if (p.speedLimitKb > 0) req.addOption("-r", "${p.speedLimitKb}K")
@@ -835,7 +840,8 @@ object Engine {
         try { YoutubeDL.getInstance().destroyProcessById(id) } catch (_: Throwable) { }
     }
 
-    fun cleanupPartial(id: String) {
+    fun cleanupPartial(ctx: Context, id: String) {
+        cleanupTemp(ctx, id)
         val p = partials.remove(id) ?: return
         try {
             for (s in listOf(p, "$p.part", "$p.ytdl", "$p.temp")) {
@@ -843,6 +849,35 @@ object Engine {
                 if (f.exists()) f.delete()
             }
         } catch (_: Throwable) { }
+    }
+
+    /** Deletes the hidden temp folder of one download (its half-finished pieces). */
+    fun cleanupTemp(ctx: Context, id: String) {
+        try { File(Utils.tempRoot(ctx), id).deleteRecursively() } catch (_: Throwable) { }
+    }
+
+    /** Only yt-dlp's own temporary names (never a plain ".part" of another app). */
+    private val leftoverRx = Regex(
+        """\.part-Frag\d+(\.part)?$|\.(mp4|m4v|mkv|webm|m4a|mp3|opus|ogg|mov|flv|ts|3gp|aac|wav|flac)\.(part|ytdl)$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * Runs once when the app starts: removes half-finished pieces nobody needs any more, i.e. temp folders of
+     * downloads that are gone, and the .part / -Frag files that older versions left inside the Download folder.
+     */
+    fun sweepLeftovers(ctx: Context, p: Prefs, keepIds: Set<String>) {
+        var n = 0
+        try {
+            Utils.tempRoot(ctx).listFiles()?.forEach { d ->
+                if (d.isDirectory && d.name !in keepIds && d.deleteRecursively()) n++
+            }
+            val hourAgo = System.currentTimeMillis() - 3_600_000L
+            Utils.outputDir(ctx, p.folder).walkTopDown().maxDepth(3).forEach { f ->
+                if (f.isFile && leftoverRx.containsMatchIn(f.name) && f.lastModified() < hourAgo && f.delete()) n++
+            }
+        } catch (_: Throwable) { }
+        if (n > 0) LogStore.i("storage", "Cleaned $n leftover file(s) of unfinished downloads")
     }
 
     // ---------------------------------------------------------------- options

@@ -94,6 +94,9 @@ object QueueManager {
         SavedLinks.init(app)
         load()
         housekeeping()
+        // Remove half-finished pieces nobody needs any more (background).
+        val keep = items.value.filter { it.status != Status.DONE }.map { it.id }.toHashSet()
+        scope.launch { Engine.sweepLeftovers(app, Settings.value, keep) }
         registerNetwork()
         ScheduleReceiver.arm(app)
 
@@ -409,7 +412,7 @@ object QueueManager {
             Engine.cancel(id)
         } else {
             jobs.remove(id)?.cancel()
-            Engine.cleanupPartial(id)
+            Engine.cleanupPartial(app, id)
         }
         items.update { l -> l.filter { x -> x.id != id } }
         Notifier.clearItem(app, id)
@@ -751,7 +754,7 @@ object QueueManager {
                 change(id) { it.copy(status = Status.PAUSED, speedText = "", etaSec = -1) }
                 LogStore.i("download", "Paused: ${item.displayTitle}", item.url)
             }
-            action == "cancel" -> Engine.cleanupPartial(id)
+            action == "cancel" -> Engine.cleanupPartial(app, id)
             action != null && action.startsWith("wait:") -> {
                 change(id) { it.copy(status = Status.WAITING, waitReason = action.removePrefix("wait:"), speedText = "", etaSec = -1) }
                 LogStore.i("download", "Waiting (${action.removePrefix("wait:")}): ${item.displayTitle}", item.url)
@@ -771,6 +774,7 @@ object QueueManager {
             )
         }
         batchDone++
+        Engine.cleanupTemp(app, id)
         val item = get(id) ?: return
         if (o.message.isNotBlank()) LogStore.w("download", o.message, item.url)
         LogStore.i("download", "Finished: ${item.displayTitle}", item.url, detail = o.filePath)

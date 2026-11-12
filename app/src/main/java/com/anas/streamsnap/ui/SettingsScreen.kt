@@ -3,6 +3,7 @@
 package com.anas.streamsnap.ui
 
 import android.content.Context
+import android.graphics.Typeface
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -74,11 +75,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.anas.streamsnap.data.Accents
@@ -481,10 +487,18 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
     SCard {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
             Text(tr("Parallel downloads", "ایک ساتھ ڈاؤن لوڈز"), style = MaterialTheme.typography.bodyLarge)
-            Hint(tr("How many videos download at the same time", "ایک وقت میں کتنی ویڈیوز ڈاؤن لوڈ ہوں"))
+            Hint(
+                tr(
+                    "How many videos download at the same time (1 to 10). Many at once can slow a phone and some sites refuse too many requests.",
+                    "ایک وقت میں کتنی ویڈیوز ڈاؤن لوڈ ہوں (1 سے 10)۔ بہت زیادہ ہوں تو فون سست ہو سکتا ہے اور کچھ سائٹس بہت زیادہ ریکویسٹس رد کر دیتی ہیں۔",
+                ),
+            )
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (1..3).forEach { n ->
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                (1..10).forEach { n ->
                     FilterChip(
                         selected = prefs.parallel == n,
                         onClick = { Settings.update { it.copy(parallel = n) }; QueueManager.pump() },
@@ -940,6 +954,15 @@ private fun AppearanceSection(prefs: Prefs) {
             prefs.autoKeyboard,
         ) { v -> Settings.update { it.copy(autoKeyboard = v) } }
         HorizontalDivider()
+        SwitchRow(
+            tr("Gesture control", "جیسچر کنٹرول"),
+            tr(
+                "On: slide a Downloading card left to delete it, right to pause / resume. Off: sliding does nothing (use the buttons or the three-dot menu).",
+                "آن: ڈاؤن لوڈنگ کارڈ کو بائیں سلائیڈ کرنے سے ڈیلیٹ، دائیں سے پاز / ریزیوم ہوتا ہے۔ بند: سلائیڈ کرنے سے کچھ نہیں ہوگا (بٹن یا تین نقطوں والا مینو استعمال کریں)۔",
+            ),
+            prefs.swipeActions,
+        ) { v -> Settings.update { it.copy(swipeActions = v) } }
+        HorizontalDivider()
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(tr("Language", "زبان"), style = MaterialTheme.typography.bodyLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1294,8 +1317,82 @@ private fun AboutSection(activity: MainActivity) {
                     "ذاتی استعمال کے لیے۔ صرف وہی مواد ڈاؤن لوڈ کریں جسے محفوظ کرنے کا آپ کو حق ہے۔",
                 )
             )
-            Spacer(Modifier.height(6.dp))
-            Text("Made by Anas", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            MadeBySignature()
         }
+    }
+}
+
+// ---------------------------------------------------------------- "Made by Anas" signature
+private class ScriptFont(val family: FontFamily, val weight: FontWeight)
+
+/**
+ * Dancing Script. The font file is added to the app when it is built (assets/fonts/DancingScript.ttf);
+ * if it is not there, Android's own "cursive" font is used, which is Dancing Script on stock Android.
+ */
+@Composable
+private fun rememberScriptFont(): ScriptFont {
+    val ctx = LocalContext.current
+    return remember {
+        try {
+            val am = ctx.assets
+            val bold: Typeface? = if (Build.VERSION.SDK_INT >= 26) {
+                try { Typeface.Builder(am, "fonts/DancingScript.ttf").setFontVariationSettings("'wght' 700").build() } catch (_: Throwable) { null }
+            } else null
+            ScriptFont(FontFamily(bold ?: Typeface.createFromAsset(am, "fonts/DancingScript.ttf")), FontWeight.Normal)
+        } catch (_: Throwable) {
+            ScriptFont(FontFamily.Cursive, FontWeight.Bold)
+        }
+    }
+}
+
+private fun contrastRatio(a: Color, b: Color): Float {
+    val la = a.luminance() + 0.05f
+    val lb = b.luminance() + 0.05f
+    return if (la > lb) la / lb else lb / la
+}
+
+/** Moves a color toward black (light card) or white (dark card) until it can be read well on [bg]. */
+private fun legibleOn(c: Color, bg: Color, min: Float = 4.5f): Color {
+    val target = if (bg.luminance() > 0.5f) Color.Black else Color.White
+    var out = c
+    var i = 0
+    while (contrastRatio(out, bg) < min && i < 10) {
+        i++
+        out = lerp(c, target, i / 10f)
+    }
+    return out
+}
+
+@Composable
+private fun MadeBySignature() {
+    val font = rememberScriptFont()
+    val bg = MaterialTheme.colorScheme.surfaceContainerLow
+    val c1 = legibleOn(MaterialTheme.colorScheme.primary, bg)
+    val c2 = legibleOn(MaterialTheme.colorScheme.tertiary, bg)
+    val soft = legibleOn(MaterialTheme.colorScheme.onSurfaceVariant, bg)
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Made by",
+                style = TextStyle(fontFamily = font.family, fontWeight = font.weight, fontSize = 24.sp, color = soft),
+                modifier = Modifier.padding(bottom = 5.dp),
+            )
+            Text(
+                "Anas",
+                style = TextStyle(
+                    fontFamily = font.family, fontWeight = font.weight, fontSize = 46.sp,
+                    brush = Brush.linearGradient(listOf(c1, c2)),
+                ),
+            )
+        }
+        Spacer(Modifier.height(2.dp))
+        Box(
+            Modifier
+                .width(104.dp)
+                .height(3.dp)
+                .clip(CircleShape)
+                .background(Brush.horizontalGradient(listOf(c1, c2))),
+        )
     }
 }

@@ -118,8 +118,9 @@ fun SwipeQueueCard(
     SwipeToDismissBox(
         state = state,
         modifier = modifier,
-        enableDismissFromStartToEnd = item.status != Status.FETCHING && !selecting,
-        enableDismissFromEndToStart = !selecting,
+        // Gesture control (Settings): with the switch off, sliding a card does nothing.
+        enableDismissFromStartToEnd = prefs.swipeActions && item.status != Status.FETCHING && !selecting,
+        enableDismissFromEndToStart = prefs.swipeActions && !selecting,
         backgroundContent = {
             val dir = state.dismissDirection
             val remove = dir == SwipeToDismissBoxValue.EndToStart

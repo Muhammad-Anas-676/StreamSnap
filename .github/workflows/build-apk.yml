@@ -29,6 +29,25 @@ jobs:
             base64 -d app/debug-keystore.b64 > app/debug-fixed.keystore
           fi
 
+      - name: Download the Dancing Script font (free OFL font, used for "Made by Anas")
+        continue-on-error: true
+        run: |
+          mkdir -p app/src/main/assets/fonts
+          F=app/src/main/assets/fonts/DancingScript.ttf
+          for U in \
+            "https://github.com/google/fonts/raw/main/ofl/dancingscript/DancingScript%5Bwght%5D.ttf" \
+            "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/dancingscript/DancingScript%5Bwght%5D.ttf"; do
+            rm -f "$F"
+            if curl -fsSL --retry 3 -o "$F" "$U" \
+               && [ "$(wc -c < "$F")" -gt 50000 ] \
+               && [ "$(head -c 4 "$F" | od -An -tx1 | tr -d ' \n')" = "00010000" ]; then
+              echo "Font downloaded from $U"
+              break
+            fi
+            rm -f "$F"
+          done
+          ls -l app/src/main/assets/fonts || true
+
       - name: Build APK (your key if secrets exist, else the fixed key)
         env:
           KS: ${{ secrets.KEYSTORE_BASE64 }}

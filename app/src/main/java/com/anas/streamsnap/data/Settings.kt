@@ -27,6 +27,7 @@ data class Prefs(
     val defaultQuality: String = "best", // best | 1080 | 720 | 480 | 360 | audio
     val qualityMode: String = "fixed",   // fixed = one quality for all videos, ask = pick per video
     // Custom video settings: when on, every video is saved with these settings (defaults = the "Video Converter" screen)
+    val swipeActions: Boolean = false,   // swipe on a Downloading card: left = delete, right = pause/resume
     val cvOn: Boolean = false,
     val cvRes: Int = 240,                // short side in pixels, 0 = keep the original
     val cvFps: Int = 24,                 // 0 = keep the original
@@ -96,7 +97,7 @@ object Settings {
             autoKeyboard = sp.getBoolean("autoKeyboard", d.autoKeyboard),
             ytFast = sp.getBoolean("ytFast", d.ytFast),
             autoStart = sp.getBoolean("autoStart", d.autoStart),
-            parallel = sp.getInt("parallel", d.parallel).coerceIn(1, 3),
+            parallel = sp.getInt("parallel", d.parallel).coerceIn(1, 10),
             wifiOnly = sp.getBoolean("wifiOnly", d.wifiOnly),
             speedLimitKb = sp.getInt("speedLimitKb", d.speedLimitKb),
             proxy = sp.getString("proxy", d.proxy) ?: "",
@@ -104,6 +105,7 @@ object Settings {
             nameTemplate = sp.getString("nameTemplate", d.nameTemplate) ?: d.nameTemplate,
             defaultQuality = sp.getString("defaultQuality", d.defaultQuality) ?: d.defaultQuality,
             qualityMode = sp.getString("qualityMode", d.qualityMode) ?: d.qualityMode,
+            swipeActions = sp.getBoolean("swipeActions", d.swipeActions),
             cvOn = sp.getBoolean("cvOn", d.cvOn),
             cvRes = sp.getInt("cvRes", d.cvRes),
             cvFps = sp.getInt("cvFps", d.cvFps),
@@ -165,6 +167,7 @@ object Settings {
             .putString("nameTemplate", p.nameTemplate)
             .putString("defaultQuality", p.defaultQuality)
             .putString("qualityMode", p.qualityMode)
+            .putBoolean("swipeActions", p.swipeActions)
             .putBoolean("cvOn", p.cvOn)
             .putInt("cvRes", p.cvRes)
             .putInt("cvFps", p.cvFps)

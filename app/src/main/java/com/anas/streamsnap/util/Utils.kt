@@ -84,6 +84,22 @@ object Utils {
         return dir
     }
 
+    /**
+     * Hidden folder for half-finished downloads (.part files, stream fragments), one sub-folder per queue item.
+     * It sits on the same storage as the Download folder, so the finished file is moved, not copied.
+     */
+    fun tempRoot(ctx: Context): File {
+        val base: File = if (hasStoragePermission(ctx)) Environment.getExternalStorageDirectory()
+        else (ctx.getExternalFilesDir(null) ?: ctx.filesDir)
+        val dir = File(base, "StreamSnap/.tmp")
+        try {
+            if (!dir.exists()) dir.mkdirs()
+            val nm = File(dir, ".nomedia")
+            if (!nm.exists()) nm.createNewFile()
+        } catch (_: Exception) { }
+        return dir
+    }
+
     fun applyNoMedia(dir: File, hidden: Boolean) {
         try {
             val f = File(dir, ".nomedia")

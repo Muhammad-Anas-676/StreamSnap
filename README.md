@@ -26,3 +26,7 @@ Signed release build (optional): add the repo secrets `KEYSTORE_BASE64`, `KEYSTO
 * Please download only content you have the right to save.
 
 Made by Anas
+
+## Fonts
+The "Made by Anas" signature uses Dancing Script (SIL Open Font License 1.1). The GitHub Actions build downloads
+`DancingScript.ttf` into `app/src/main/assets/fonts/`; if that download fails the app falls back to Android's built-in "cursive" font.
