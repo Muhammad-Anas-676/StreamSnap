@@ -1,5 +1,9 @@
 package com.anas.streamsnap.ui
 
+import android.content.Intent
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Share
+import com.anas.streamsnap.data.tr3
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.Uri
@@ -233,8 +237,12 @@ fun BrowserScreen() {
 
     Column(Modifier.fillMaxSize().background(bgColor).statusBarsPadding()) {
         // ---- address pill
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (showWeb) {
+            TextButton(onClick = { goHome() }) { Text(tr3("Cancel", "Cancel", "منسوخ")) }
+        } else Spacer(Modifier.width(4.dp))
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.weight(1f),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
@@ -250,7 +258,10 @@ fun BrowserScreen() {
                     onValueChange = { urlText = it },
                     modifier = Modifier.weight(1f).tapToType().onFocusChanged { editing = it.isFocused },
                     singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = if (showWeb && !editing) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
+                    ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
                     keyboardActions = KeyboardActions(onGo = { go(urlText) }),
@@ -285,33 +296,8 @@ fun BrowserScreen() {
                 }
             }
         }
-
-        // ---- toolbar (only while a page is open)
-        if (showWeb) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = { webView?.goBack() }, enabled = canBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Back", "پیچھے"))
-                }
-                IconButton(onClick = { webView?.goForward() }, enabled = canForward) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = tr("Forward", "آگے"))
-                }
-                IconButton(onClick = { goHome() }) {
-                    Icon(Icons.Filled.Home, contentDescription = tr("Browser home", "براؤزر ہوم"))
-                }
-                Spacer(Modifier.weight(1f))
-                FilledTonalButton(
-                    onClick = { saveLogin() },
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                ) {
-                    Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(tr("Save login", "لاگ اِن محفوظ کریں"))
-                }
-            }
         }
+
         if (showWeb && progress in 1..99) {
             LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
         } else {
@@ -435,6 +421,22 @@ fun BrowserScreen() {
                     )
                 }
             }
+        }
+        if (showWeb) {
+            BrowserBottomBar(
+                canBack = canBack, canForward = canForward,
+                onBack = { webView?.goBack() }, onForward = { webView?.goForward() },
+                onShare = {
+                    try {
+                        val i = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, curUrl) }
+                        ctx.startActivity(Intent.createChooser(i, null))
+                    } catch (_: Throwable) { }
+                },
+                onSaveLogin = { saveLogin() },
+                onOpenExternal = {
+                    try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(curUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Throwable) { }
+                },
+            )
         }
     }
 
@@ -585,6 +587,34 @@ private fun SiteTile(site: Site, modifier: Modifier, onClick: () -> Unit) {
 @Composable
 private fun SiteLetter(site: Site) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(site.name.take(1), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(site.name.take(1), color = com.anas.streamsnap.core.theme.bestOn(site.brand), fontSize = 24.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+
+/** Bottom bar like a phone browser: back, forward, share, save login and open in the system browser. */
+@Composable
+private fun BrowserBottomBar(
+    canBack: Boolean, canForward: Boolean,
+    onBack: () -> Unit, onForward: () -> Unit, onShare: () -> Unit, onSaveLogin: () -> Unit, onOpenExternal: () -> Unit,
+) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, enabled = canBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr3("Back", "Wapas", "پیچھے"))
+            }
+            IconButton(onClick = onForward, enabled = canForward) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = tr3("Forward", "Aage", "آگے"))
+            }
+            IconButton(onClick = onShare) {
+                Icon(Icons.Filled.Share, contentDescription = tr3("Share", "Share", "شیئر"))
+            }
+            IconButton(onClick = onSaveLogin) {
+                Icon(Icons.Filled.Key, contentDescription = tr3("Save login", "Login mehfooz karein", "لاگ اِن محفوظ کریں"))
+            }
+            IconButton(onClick = onOpenExternal) {
+                Icon(Icons.Filled.OpenInBrowser, contentDescription = tr3("Open in browser", "Browser mein kholein", "براؤزر میں کھولیں"))
+            }
+        }
     }
 }

@@ -106,7 +106,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.tr
-import com.anas.streamsnap.ui.StreamSnapTheme
+import com.anas.streamsnap.core.theme.AppTheme
 import com.anas.streamsnap.util.LogStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -246,7 +246,7 @@ class PlayerActivity : ComponentActivity() {
 
         setContent {
             val prefs by Settings.state.collectAsState()
-            StreamSnapTheme(prefs) { PlayerUi() }
+            AppTheme { PlayerUi() }
         }
     }
 
@@ -466,7 +466,7 @@ class PlayerActivity : ComponentActivity() {
             LogStore.e("player", "Cannot play this file: ${error.errorCodeName}", url = path, t = error)
             Toast.makeText(
                 this@PlayerActivity,
-                tr("Cannot play this file (see Log)", "یہ فائل نہیں چل سکی (لاگ دیکھیں)"),
+                tr("Cannot play this file", "یہ فائل نہیں چل سکی"),
                 Toast.LENGTH_LONG,
             ).show()
         }

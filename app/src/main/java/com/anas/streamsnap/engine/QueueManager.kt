@@ -200,7 +200,7 @@ object QueueManager {
             val known = items.value.map { Utils.normalizeUrl(it.url) }.toHashSet()
             for (u in urls) {
                 if (!known.add(Utils.normalizeUrl(u))) { dup++; continue }
-                fresh.add(DownloadItem(id = newId(), url = u, site = Utils.siteName(u), quality = p.defaultQuality))
+                fresh.add(DownloadItem(id = newId(), url = u, site = Utils.siteName(u), quality = if (p.cvOn) "best" else p.defaultQuality))
             }
             if (fresh.isNotEmpty()) items.value = items.value + fresh
         }
@@ -287,7 +287,7 @@ object QueueManager {
             val known = items.value.map { Utils.normalizeUrl(it.url) }.toHashSet()
             for (m in entries) {
                 if (!known.add(Utils.normalizeUrl(m.url))) continue
-                val it = metaToItem(m, p.defaultQuality)
+                val it = metaToItem(m, if (p.cvOn) "best" else p.defaultQuality)
                 created.add(it.copy(status = st, sizeEstimate = it.sizeFor(it.quality)))
             }
             val cur = items.value
@@ -620,7 +620,7 @@ object QueueManager {
                 emit(tr("MP3 saved: ${f.name}", "MP3 محفوظ ہو گئی: ${f.name}"))
             } else {
                 LogStore.e("convert", "MP3 conversion failed: ${r.message}", x.url, raw = r.raw.ifBlank { r.message })
-                emit(tr("MP3 conversion failed. See the Log for the exact error.", "MP3 تبدیلی ناکام۔ درست ایرر لاگ میں دیکھیں۔"))
+                emit(tr("MP3 conversion failed.", "MP3 تبدیلی ناکام۔"))
             }
         }
     }

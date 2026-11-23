@@ -48,3 +48,14 @@ internal fun shareFiles(ctx: Context, items: List<DownloadItem>) {
         Toast.makeText(ctx, tr("Could not share these files", "یہ فائلیں شیئر نہیں ہو سکیں"), Toast.LENGTH_SHORT).show()
     }
 }
+
+/** Copies [text] to the clipboard and tells the user. */
+fun copyToClipboard(ctx: android.content.Context, label: String, text: String) {
+    try {
+        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+        android.widget.Toast.makeText(ctx, com.anas.streamsnap.data.tr3("Copied", "Copy ho gaya", "کاپی ہو گیا"), android.widget.Toast.LENGTH_SHORT).show()
+    } catch (t: Throwable) {
+        android.widget.Toast.makeText(ctx, com.anas.streamsnap.data.tr3("Could not copy", "Copy nahi ho saka", "کاپی نہیں ہو سکا"), android.widget.Toast.LENGTH_SHORT).show()
+    }
+}

@@ -13,7 +13,7 @@ data class Prefs(
     val themeMode: Int = 0,              // 0 system, 1 light, 2 dark
     val amoled: Boolean = false,
     val accent: Int = 0,                 // index in Accents, 99 = dynamic (Material You)
-    val language: String = "en",         // en | ur
+    val language: String = "en",         // en | ro | ur
     val autoKeyboard: Boolean = false,   // false = keyboard opens only when a text field is tapped
     val ytFast: Boolean = true,          // YouTube fast route (no JavaScript solving)
     // Downloads
@@ -220,21 +220,57 @@ object Settings {
         save(next)
     }
 
-    // ---- PIN helpers (salted SHA-256; the PIN itself is never stored) ----
-    private fun hash(pin: String, salt: String): String {
+    // ---- PIN helpers: PBKDF2 with a random salt; the PIN itself is never stored ----
+    private fun legacyHash(pin: String, salt: String): String {
         val md = MessageDigest.getInstance("SHA-256")
         return md.digest((salt + pin).toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
+    private fun pbkdf2(pin: String, salt: String): String {
+        val algo = if (android.os.Build.VERSION.SDK_INT >= 26) "PBKDF2WithHmacSHA256" else "PBKDF2WithHmacSHA1"
+        val spec = javax.crypto.spec.PBEKeySpec(pin.toCharArray(), salt.toByteArray(), 60_000, 256)
+        val bytes = javax.crypto.SecretKeyFactory.getInstance(algo).generateSecret(spec).encoded
+        return "v2:" + bytes.joinToString("") { "%02x".format(it) }
+    }
+
     fun setPin(pin: String) {
-        val saltBytes = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val saltBytes = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val salt = saltBytes.joinToString("") { "%02x".format(it) }
-        update { it.copy(pinSalt = salt, pinHash = hash(pin, salt), appLock = true) }
+        sp.edit().putInt("pinFails", 0).putLong("pinLockedUntil", 0).apply()
+        update { it.copy(pinSalt = salt, pinHash = pbkdf2(pin, salt), appLock = true) }
+    }
+
+    /** Seconds left before another PIN try is allowed (0 = allowed now). */
+    fun lockRemainingSec(): Int {
+        val left = sp.getLong("pinLockedUntil", 0) - System.currentTimeMillis()
+        return if (left > 0) ((left + 999) / 1000).toInt() else 0
     }
 
     fun checkPin(pin: String): Boolean {
+        if (lockRemainingSec() > 0) return false
         val p = value
-        return p.pinHash.isNotEmpty() && hash(pin, p.pinSalt) == p.pinHash
+        if (p.pinHash.isEmpty()) return false
+        val ok = if (p.pinHash.startsWith("v2:")) {
+            pbkdf2(pin, p.pinSalt) == p.pinHash
+        } else {
+            // A PIN saved by an older version: accept it once and upgrade it to the stronger format.
+            val legacy = legacyHash(pin, p.pinSalt) == p.pinHash
+            if (legacy) setPin(pin)
+            legacy
+        }
+        if (ok) {
+            sp.edit().putInt("pinFails", 0).putLong("pinLockedUntil", 0).apply()
+        } else {
+            // 5 wrong tries lock the PIN pad for 30 s, then longer each round (up to 15 min).
+            val fails = sp.getInt("pinFails", 0) + 1
+            val e = sp.edit().putInt("pinFails", fails)
+            if (fails % 5 == 0) {
+                val round = (fails / 5 - 1).coerceAtMost(5)
+                e.putLong("pinLockedUntil", System.currentTimeMillis() + minOf(30_000L shl round, 900_000L))
+            }
+            e.apply()
+        }
+        return ok
     }
 
     fun disableLock() = update { it.copy(appLock = false, pinHash = "", pinSalt = "") }
@@ -243,7 +279,7 @@ object Settings {
     fun exportMap(): Map<String, Any?> {
         val m = LinkedHashMap<String, Any?>()
         for ((k, v) in sp.all) {
-            if (k == "pinHash" || k == "pinSalt") continue // never export lock secrets
+            if (k == "pinHash" || k == "pinSalt" || k == "pinFails" || k == "pinLockedUntil") continue // never export lock secrets
             m[k] = v
         }
         return m
@@ -252,7 +288,7 @@ object Settings {
     fun importMap(map: Map<String, Any?>) {
         val e = sp.edit()
         for ((k, v) in map) {
-            if (k == "pinHash" || k == "pinSalt" || k == "appLock") continue
+            if (k == "pinHash" || k == "pinSalt" || k == "appLock" || k == "pinFails" || k == "pinLockedUntil") continue
             when (v) {
                 is Boolean -> e.putBoolean(k, v)
                 is Int -> e.putInt(k, v)

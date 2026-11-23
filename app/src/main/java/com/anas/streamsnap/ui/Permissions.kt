@@ -111,7 +111,7 @@ private fun PermissionRow(title: String, subtitle: String, granted: Boolean, onA
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (granted) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF1FA971))
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = com.anas.streamsnap.core.theme.ensureContrast(Color(0xFF1FA971), MaterialTheme.colorScheme.surfaceContainerHighest, 4.7f))
         } else {
             OutlinedButton(onClick = onAllow) { Text(tr("Allow", "اجازت دیں")) }
         }

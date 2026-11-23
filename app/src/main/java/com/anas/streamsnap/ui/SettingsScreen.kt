@@ -2,6 +2,21 @@
 
 package com.anas.streamsnap.ui
 
+import com.anas.streamsnap.data.tr3
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.VideoSettings
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.IconButton
+import com.anas.streamsnap.core.ui.ThemeAppearanceCard
+import com.anas.streamsnap.core.ui.MadeByAnasSignature
+import com.anas.streamsnap.core.legal.LegalDocs
+import com.anas.streamsnap.core.legal.LegalDocRow
+import com.anas.streamsnap.core.legal.LegalReader
+import com.anas.streamsnap.core.cloud.ScreenTracker
+
 import android.content.Context
 import android.graphics.Typeface
 import android.os.Build
@@ -87,7 +102,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.anas.streamsnap.data.Accents
 import com.anas.streamsnap.data.DownloadItem
 import com.anas.streamsnap.data.Prefs
 import com.anas.streamsnap.data.QUALITY_OPTIONS
@@ -110,35 +124,67 @@ import kotlinx.coroutines.withContext
 
 // ============================================================================ screen
 @Composable
-fun SettingsScreen(activity: MainActivity) {
+fun SettingsScreen(activity: MainActivity, onBack: () -> Unit) {
     val prefs by Settings.state.collectAsState()
     val items by QueueManager.items.collectAsState()
+    var legalOpen by rememberSaveable { mutableStateOf<String?>(null) }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 32.dp)
+    // Screen time for the admin: Settings, or Legal while a document is open.
+    LaunchedEffect(legalOpen) { ScreenTracker.enter(if (legalOpen != null) "Legal" else "Settings") }
+
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr3("Back", "Wapas", "واپس"),
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
+            }
+            Text(
+                tr("Settings", "سیٹنگز"),
+                style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        Column(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            AppearanceSection(prefs)
+            HowItWorksCard(prefs)
+            DownloadModeSection(prefs)
+            QualitySection(prefs)
+            DownloadOptionsSection(prefs, hasScheduled = items.any { it.status == Status.SCHEDULED })
+            NotificationSection(prefs)
+            PrivacySection(prefs)
+            StorageSection(prefs, items)
+            BackupSection()
+            LegalAboutSection(activity) { legalOpen = it }
+        }
+    }
+    legalOpen?.let { LegalReader(it, onClose = { legalOpen = null }) }
+}
+
+/** A row with a title and an expand / collapse arrow. */
+@Composable
+private fun ExpandHeader(title: String, subtitle: String?, isOpen: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            tr("Settings", "سیٹنگز"),
-            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 4.dp, top = 12.dp),
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            if (subtitle != null) Hint(subtitle)
+        }
+        Icon(
+            if (isOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (isOpen) tr3("Collapse", "Band karein", "بند کریں") else tr3("Expand", "Kholein", "کھولیں"),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        HowItWorksCard(prefs)
-        DownloadModeSection(prefs)
-        QualitySection(prefs)
-        DownloadOptionsSection(prefs, hasScheduled = items.any { it.status == Status.SCHEDULED })
-        AdvancedSection(prefs)
-        AppearanceSection(prefs)
-        NotificationSection(prefs)
-        PrivacySection(prefs)
-        StorageSection(prefs, items)
-        EngineSection(prefs, activity)
-        BackupSection()
-        AboutSection(activity)
     }
 }
 
@@ -299,18 +345,18 @@ private fun QualitySection(prefs: Prefs) {
     SectionTitle(tr("Video quality", "ویڈیو کوالٹی"))
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         ChoiceCard(
-            selected = prefs.qualityMode == "fixed", icon = Icons.Filled.HighQuality,
+            selected = prefs.qualityMode == "fixed" && !prefs.cvOn, icon = Icons.Filled.HighQuality,
             title = tr("All videos this quality", "تمام ویڈیوز اسی کوالٹی میں"),
             subtitle = tr(
                 "One quality for every link. Now: ${qualityLabel(prefs.defaultQuality)}",
                 "ہر لنک کے لیے ایک ہی کوالٹی۔ ابھی: ${qualityLabel(prefs.defaultQuality)}",
             ),
         ) {
-            Settings.update { it.copy(qualityMode = "fixed") }
+            Settings.update { it.copy(qualityMode = "fixed", cvOn = false) }
             QueueManager.applyDefaultQuality(Settings.value.defaultQuality)
             QueueManager.onModeChanged()
         }
-        AnimatedVisibility(visible = prefs.qualityMode == "fixed") {
+        AnimatedVisibility(visible = prefs.qualityMode == "fixed" && !prefs.cvOn) {
             SCard {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(tr("Choose the quality", "کوالٹی چنیں"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
@@ -334,14 +380,26 @@ private fun QualitySection(prefs: Prefs) {
             }
         }
         ChoiceCard(
-            selected = prefs.qualityMode == "ask", icon = Icons.Filled.Tune,
+            selected = prefs.qualityMode == "ask" && !prefs.cvOn, icon = Icons.Filled.Tune,
             title = tr("I choose for each video", "ہر ویڈیو کی کوالٹی میں خود چنوں گا"),
             subtitle = tr(
                 "Quality chips show on every card. In Automatic mode, tapping a chip starts the download.",
                 "ہر کارڈ پر کوالٹی چپس آتی ہیں۔ خودکار موڈ میں چپ دبانے سے ڈاؤن لوڈ شروع ہو جاتی ہے۔",
             ),
         ) {
-            Settings.update { it.copy(qualityMode = "ask") }
+            Settings.update { it.copy(qualityMode = "ask", cvOn = false) }
+        }
+        ChoiceCard(
+            selected = prefs.cvOn, icon = Icons.Filled.VideoSettings,
+            title = tr3("Custom video quality", "Custom video quality", "کسٹم ویڈیو کوالٹی"),
+            subtitle = tr(
+                "Every video is saved with the settings below",
+                "ہر ویڈیو نیچے دی گئی سیٹنگز کے مطابق محفوظ ہوگی",
+            ),
+        ) {
+            Settings.update { it.copy(qualityMode = "fixed", cvOn = true) }
+            QueueManager.applyDefaultQuality("best")
+            QueueManager.onModeChanged()
         }
         CustomVideoCard(prefs)
     }
@@ -369,18 +427,9 @@ private fun cvFlipLabel(v: String) = when (v) {
 @Composable
 private fun CustomVideoCard(prefs: Prefs) {
     var dlg by remember { mutableStateOf<String?>(null) }
-    SCard {
-        SwitchRow(
-            tr("Custom video settings", "کسٹم ویڈیو سیٹنگز"),
-            tr(
-                "Every video is saved with the settings below",
-                "ہر ویڈیو نیچے دی گئی سیٹنگز کے مطابق محفوظ ہوگی",
-            ),
-            prefs.cvOn,
-        ) { v -> Settings.update { it.copy(cvOn = v) } }
-        AnimatedVisibility(visible = prefs.cvOn) {
+    AnimatedVisibility(visible = prefs.cvOn) {
+      SCard {
             Column {
-                HorizontalDivider()
                 ClickRow(tr("Resolution", "ریزولوشن"), trailing = cvResLabel(prefs.cvRes)) { dlg = "res" }
                 ClickRow(tr("Frame rate", "فریم ریٹ"), trailing = cvFpsLabel(prefs.cvFps)) { dlg = "fps" }
                 ClickRow(tr("Video codec", "ویڈیو کوڈیک"), trailing = cvVCodecLabel(prefs.cvVCodec)) { dlg = "vcodec" }
@@ -397,7 +446,7 @@ private fun CustomVideoCard(prefs: Prefs) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Hint(
                         tr(
-                            "Applies to video downloads only; MP3 and M4A are not changed. The video is converted on your phone right after it downloads, so it takes extra time. The resolution here replaces the quality chosen above. If a setting fails, the video is kept as downloaded and the Log shows why.",
+                            "Applies to video downloads only; MP3 and M4A are not changed. The video is converted on your phone right after it downloads, so it takes extra time. The resolution here replaces the quality chosen above. If a setting fails, the video is kept as downloaded.",
                             "صرف ویڈیو ڈاؤن لوڈز پر لاگو ہوتی ہے؛ MP3 اور M4A میں تبدیلی نہیں ہوتی۔ ڈاؤن لوڈ کے فوراً بعد ویڈیو آپ کے فون پر کنورٹ ہوتی ہے، اس لیے زیادہ وقت لگتا ہے۔ یہاں کی ریزولوشن اوپر والی کوالٹی کی جگہ لے لیتی ہے۔ اگر کوئی سیٹنگ ناکام ہو تو ویڈیو جیسی ڈاؤن لوڈ ہوئی ویسی رہتی ہے اور لاگ میں وجہ دکھتی ہے۔",
                         ),
                     )
@@ -483,27 +532,34 @@ private fun DownloadOptionsSection(prefs: Prefs, hasScheduled: Boolean) {
     val ctx = LocalContext.current
     var dlg by remember { mutableStateOf<String?>(null) }
 
+    var parOpen by rememberSaveable { mutableStateOf(false) }
     SectionTitle(tr("Download options", "ڈاؤن لوڈ آپشنز"))
     SCard {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Text(tr("Parallel downloads", "ایک ساتھ ڈاؤن لوڈز"), style = MaterialTheme.typography.bodyLarge)
-            Hint(
-                tr(
-                    "How many videos download at the same time (1 to 10). Many at once can slow a phone and some sites refuse too many requests.",
-                    "ایک وقت میں کتنی ویڈیوز ڈاؤن لوڈ ہوں (1 سے 10)۔ بہت زیادہ ہوں تو فون سست ہو سکتا ہے اور کچھ سائٹس بہت زیادہ ریکویسٹس رد کر دیتی ہیں۔",
-                ),
-            )
-            Spacer(Modifier.height(6.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                (1..10).forEach { n ->
-                    FilterChip(
-                        selected = prefs.parallel == n,
-                        onClick = { Settings.update { it.copy(parallel = n) }; QueueManager.pump() },
-                        label = { Text("$n") },
-                    )
+        ExpandHeader(
+            title = tr("Parallel downloads", "ایک ساتھ ڈاؤن لوڈز"),
+            subtitle = tr3("${prefs.parallel} at the same time", "${prefs.parallel} ek saath", "${prefs.parallel} ایک ساتھ"),
+            isOpen = parOpen,
+        ) { parOpen = !parOpen }
+        AnimatedVisibility(visible = parOpen) {
+            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
+                Hint(
+                    tr(
+                        "How many videos download at the same time (1 to 10). Many at once can slow a phone and some sites refuse too many requests.",
+                        "ایک وقت میں کتنی ویڈیوز ڈاؤن لوڈ ہوں (1 سے 10)۔ بہت زیادہ ہوں تو فون سست ہو سکتا ہے اور کچھ سائٹس بہت زیادہ ریکویسٹس رد کر دیتی ہیں۔",
+                    ),
+                )
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    (1..10).forEach { n ->
+                        FilterChip(
+                            selected = prefs.parallel == n,
+                            onClick = { Settings.update { it.copy(parallel = n) }; QueueManager.pump() },
+                            label = { Text("$n") },
+                        )
+                    }
                 }
             }
         }
@@ -809,150 +865,17 @@ private fun TimeDialog(hour: Int, minute: Int, onSave: (Int, Int) -> Unit, onDis
     }
 }
 
-// ============================================================================ advanced (proxy, cookies)
-@Composable
-private fun AdvancedSection(prefs: Prefs) {
-    val ctx = LocalContext.current
-    var dlg by remember { mutableStateOf(false) }
-    var cookieTick by remember { mutableIntStateOf(0) }
-    val hasCookies = remember(cookieTick) { Engine.cookieFile(ctx).let { it.exists() && it.length() > 0 } }
-
-    val cookieLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            try {
-                ctx.contentResolver.openInputStream(uri)?.use { input ->
-                    Engine.cookieFile(ctx).outputStream().use { out -> input.copyTo(out) }
-                }
-                Settings.update { it.copy(useCookies = true) }
-                cookieTick++
-                LogStore.i("settings", "Cookies file imported")
-                Toast.makeText(ctx, tr("Cookies imported", "کوکیز امپورٹ ہو گئیں"), Toast.LENGTH_SHORT).show()
-            } catch (t: Throwable) {
-                LogStore.e("settings", "Could not import the cookies file", t = t)
-                Toast.makeText(ctx, tr("Could not import cookies (see Log)", "کوکیز امپورٹ نہیں ہوئیں (لاگ دیکھیں)"), Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    SectionTitle(tr("Advanced", "ایڈوانسڈ"))
-    SCard {
-        ClickRow(
-            tr("Proxy", "پراکسی"),
-            subtitle = tr("For sites blocked in your network", "ان سائٹس کے لیے جو آپ کے نیٹ ورک میں بند ہیں"),
-            trailing = if (prefs.proxy.isBlank()) tr("Off", "بند") else tr("On", "چالو"),
-        ) { dlg = true }
-        HorizontalDivider()
-        SwitchRow(
-            tr("Use cookies (login)", "کوکیز استعمال کریں (لاگ اِن)"),
-            if (hasCookies) tr("Cookies file is imported", "کوکیز فائل امپورٹ ہے") else tr("Import a cookies.txt first", "پہلے cookies.txt امپورٹ کریں"),
-            prefs.useCookies && hasCookies,
-        ) { v ->
-            if (v && !hasCookies) cookieLauncher.launch(arrayOf("text/plain", "*/*"))
-            else Settings.update { it.copy(useCookies = v) }
-        }
-        HorizontalDivider()
-        ClickRow(tr("Import cookies.txt", "cookies.txt امپورٹ کریں")) { cookieLauncher.launch(arrayOf("text/plain", "*/*")) }
-        if (hasCookies) {
-            HorizontalDivider()
-            ClickRow(tr("Remove cookies", "کوکیز ہٹائیں")) {
-                try { Engine.cookieFile(ctx).delete() } catch (_: Throwable) { }
-                Settings.update { it.copy(useCookies = false) }
-                cookieTick++
-            }
-        }
-    }
-    Spacer(Modifier.height(4.dp))
-    Hint(tr("Cookies stay on this phone and are never shown in the Log.", "کوکیز اسی فون میں رہتی ہیں اور لاگ میں کبھی نظر نہیں آتیں۔"))
-
-    if (dlg) {
-        var v by remember { mutableStateOf(prefs.proxy) }
-        AlertDialog(
-            onDismissRequest = { dlg = false },
-            title = { Text(tr("Proxy", "پراکسی")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = v, onValueChange = { v = it }, singleLine = true,
-                        label = { Text("http://host:port  /  socks5://host:port") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Hint(tr("Leave empty for no proxy.", "پراکسی نہ چاہیے تو خالی چھوڑیں۔"))
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { Settings.update { it.copy(proxy = v.trim()) }; dlg = false }) { Text(tr("Save", "محفوظ کریں")) }
-            },
-            dismissButton = { TextButton(onClick = { dlg = false }) { Text(tr("Cancel", "منسوخ")) } },
-        )
-    }
-}
-
 // ============================================================================ appearance
 @Composable
 private fun AppearanceSection(prefs: Prefs) {
-    SectionTitle(tr("Appearance", "ظاہری شکل"))
+    SectionTitle(tr3("Appearance", "Zaahiri shakal", "ظاہری شکل"))
+    ThemeAppearanceCard()
+    Spacer(Modifier.height(10.dp))
     SCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("Theme", "تھیم"), style = MaterialTheme.typography.bodyLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(0 to tr("System", "سسٹم"), 1 to tr("Light", "لائٹ"), 2 to tr("Dark", "ڈارک")).forEach { (mode, label) ->
-                    FilterChip(
-                        selected = prefs.themeMode == mode,
-                        onClick = { Settings.update { it.copy(themeMode = mode) } },
-                        label = { Text(label) },
-                    )
-                }
-            }
+            Text(tr3("Language", "Zubaan", "زبان"), style = MaterialTheme.typography.bodyLarge)
+            LanguageChips()
         }
-        HorizontalDivider()
-        SwitchRow(
-            tr("AMOLED black", "AMOLED بلیک"),
-            tr("Pure black in dark theme", "ڈارک تھیم میں خالص کالا"),
-            prefs.amoled,
-        ) { v -> Settings.update { it.copy(amoled = v) } }
-        HorizontalDivider()
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(tr("Accent color", "اکسینٹ رنگ"), style = MaterialTheme.typography.bodyLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Accents.list.forEachIndexed { i, pair ->
-                    Box(
-                        Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(pair.second))
-                            .clickable { Settings.update { it.copy(accent = i) } },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (prefs.accent == i) Icon(Icons.Filled.Check, null, tint = Color.White)
-                    }
-                }
-                if (Build.VERSION.SDK_INT >= 31) {
-                    Box(
-                        Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Brush.sweepGradient(listOf(Color(0xFF1C68FA), Color(0xFFE91E63), Color(0xFFF5A623), Color(0xFF1FA971), Color(0xFF1C68FA))))
-                            .clickable { Settings.update { it.copy(accent = Accents.DYNAMIC) } },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            if (prefs.accent == Accents.DYNAMIC) Icons.Filled.Check else Icons.Filled.AutoAwesome,
-                            null, tint = Color.White,
-                        )
-                    }
-                }
-            }
-            if (Build.VERSION.SDK_INT >= 31) Hint(tr("The rainbow circle uses your wallpaper colors.", "رنگین دائرہ آپ کے وال پیپر کے رنگ استعمال کرتا ہے۔"))
-        }
-        HorizontalDivider()
-        SwitchRow(
-            tr("Auto keyboard", "خودکار کی بورڈ"),
-            tr(
-                "Off: the keyboard opens only when you tap a text field. On: it may open by itself on screens that have a text field.",
-                "بند: کی بورڈ صرف ٹیکسٹ فیلڈ پر ٹیپ کرنے سے کھلے گا۔ آن: ٹیکسٹ فیلڈ والی اسکرین پر خود کھل سکتا ہے۔",
-            ),
-            prefs.autoKeyboard,
-        ) { v -> Settings.update { it.copy(autoKeyboard = v) } }
         HorizontalDivider()
         SwitchRow(
             tr("Gesture control", "جیسچر کنٹرول"),
@@ -962,22 +885,6 @@ private fun AppearanceSection(prefs: Prefs) {
             ),
             prefs.swipeActions,
         ) { v -> Settings.update { it.copy(swipeActions = v) } }
-        HorizontalDivider()
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(tr("Language", "زبان"), style = MaterialTheme.typography.bodyLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = prefs.language == "en",
-                    onClick = { Settings.update { it.copy(language = "en") } },
-                    label = { Text("English") },
-                )
-                FilterChip(
-                    selected = prefs.language == "ur",
-                    onClick = { Settings.update { it.copy(language = "ur") } },
-                    label = { Text("اردو") },
-                )
-            }
-        }
     }
 }
 
@@ -985,8 +892,17 @@ private fun AppearanceSection(prefs: Prefs) {
 @Composable
 private fun NotificationSection(prefs: Prefs) {
     val ctx = LocalContext.current
-    SectionTitle(tr("Notifications", "نوٹیفیکیشنز"))
+    var notifOpen by rememberSaveable { mutableStateOf(false) }
+    SectionTitle(tr3("Notifications", "Notifications", "نوٹیفیکیشنز"))
     SCard {
+        ExpandHeader(
+            title = tr3("Notification options", "Notification ke options", "نوٹیفیکیشن کے آپشنز"),
+            subtitle = tr3("Progress, done, failed, sound and more", "Progress, mukammal, nakam, awaaz aur mazeed", "پیش رفت، مکمل، ناکام، آواز اور مزید"),
+            isOpen = notifOpen,
+        ) { notifOpen = !notifOpen }
+        AnimatedVisibility(visible = notifOpen) {
+            Column {
+                HorizontalDivider()
         SwitchRow(tr("Live progress", "لائیو پیش رفت"), tr("Silent bar with Pause and Cancel buttons", "خاموش بار، Pause اور Cancel بٹنوں کے ساتھ"), prefs.nProgress) { v ->
             Settings.update { it.copy(nProgress = v) }
         }
@@ -1030,6 +946,8 @@ private fun NotificationSection(prefs: Prefs) {
         }
         HorizontalDivider()
         ClickRow(tr("System notification settings", "سسٹم نوٹیفیکیشن سیٹنگز")) { openNotificationSettings(ctx) }
+            }
+        }
     }
 }
 
@@ -1093,35 +1011,48 @@ private fun PrivacySection(prefs: Prefs) {
 @Composable
 private fun StorageSection(prefs: Prefs, items: List<DownloadItem>) {
     val ctx = LocalContext.current
-    val done = remember(items) { items.filter { it.status == Status.DONE } }
-    val used = done.sumOf { it.fileSize }
-    val audioCount = done.count { it.isAudio }
-    val space = remember(prefs.folder, done.size) {
-        val d = Utils.outputDir(ctx, prefs.folder)
-        Utils.freeBytes(d) to Utils.totalBytes(d)
+    val latest by rememberUpdatedState(items)
+    // Real numbers: every finished file is looked up on the disk, and the disk itself is asked for free / total space.
+    // The block refreshes by itself every few seconds while Settings is open.
+    var st by remember { mutableStateOf(LiveStorage()) }
+    LaunchedEffect(prefs.folder) {
+        while (true) {
+            st = withContext(Dispatchers.IO) { measureStorage(ctx, prefs.folder, latest) }
+            delay(4000)
+        }
     }
-    val free = space.first
-    val total = space.second
 
-    SectionTitle(tr("Storage and stats", "اسٹوریج اور اعداد و شمار"))
+    SectionTitle(tr3("Storage and stats", "Storage aur stats", "اسٹوریج اور اعداد و شمار"))
     SCard {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatTile("${done.size}", tr("Downloads", "ڈاؤن لوڈز"))
-            StatTile("${done.size - audioCount} / $audioCount", tr("Video / Audio", "ویڈیو / آڈیو"))
-            StatTile(Utils.fmtBytes(used), tr("Used by app", "ایپ کا استعمال"))
+            StatTile("${st.files}", tr3("Files", "Files", "فائلیں"))
+            StatTile("${st.videos} / ${st.audios}", tr3("Video / Audio", "Video / Audio", "ویڈیو / آڈیو"))
+            StatTile(Utils.fmtBytes(st.usedByApp), tr3("Used by app", "App ka istemal", "ایپ کا استعمال"))
         }
-        if (total > 0 && free != Long.MAX_VALUE) {
+        if (st.total > 0) {
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 LinearProgressIndicator(
-                    progress = { ((total - free).toFloat() / total.toFloat()).coerceIn(0f, 1f) },
+                    progress = { ((st.total - st.free).toFloat() / st.total.toFloat()).coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 )
                 Hint(
-                    tr(
-                        "${Utils.fmtBytes(free)} free of ${Utils.fmtBytes(total)}",
-                        "${Utils.fmtBytes(total)} میں سے ${Utils.fmtBytes(free)} خالی",
-                    )
+                    tr3(
+                        "${Utils.fmtBytes(st.free)} free of ${Utils.fmtBytes(st.total)}",
+                        "${Utils.fmtBytes(st.total)} mein se ${Utils.fmtBytes(st.free)} khali",
+                        "${Utils.fmtBytes(st.total)} میں سے ${Utils.fmtBytes(st.free)} خالی",
+                    ),
                 )
+                if (st.missing > 0) {
+                    Hint(
+                        tr3(
+                            "${st.missing} finished item(s) no longer have a file on the phone.",
+                            "${st.missing} mukammal item(s) ki file ab phone mein nahi.",
+                            "${st.missing} مکمل آئٹم کی فائل اب فون میں نہیں۔",
+                        ),
+                    )
+                }
             }
         }
         HorizontalDivider()
@@ -1143,117 +1074,24 @@ private fun StorageSection(prefs: Prefs, items: List<DownloadItem>) {
     }
 }
 
-// ============================================================================ engine
-@Composable
-private fun EngineSection(prefs: Prefs, activity: MainActivity) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val state by Engine.state.collectAsState()
-    var version by remember { mutableStateOf(LogStore.engineVersion) }
-    var busy by remember { mutableStateOf(false) }
-    var confirmReset by remember { mutableStateOf(false) }
-    LaunchedEffect(state) { version = LogStore.engineVersion }
+private class LiveStorage(
+    val files: Int = 0, val videos: Int = 0, val audios: Int = 0, val missing: Int = 0,
+    val usedByApp: Long = 0, val free: Long = 0, val total: Long = 0,
+)
 
-    SectionTitle(tr("Download engine", "ڈاؤن لوڈ انجن"))
-    SCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("yt-dlp  $version", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Hint(
-                when (state) {
-                    "ready" -> tr("Engine is ready", "انجن تیار ہے")
-                    "error" -> tr("Engine could not start. Open the Log for the exact error.", "انجن شروع نہیں ہوا۔ درست ایرر کے لیے لاگ کھولیں۔")
-                    else -> tr("Engine is starting…", "انجن شروع ہو رہا ہے…")
-                }
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = prefs.engineChannel == "stable",
-                    onClick = { Settings.update { it.copy(engineChannel = "stable") } },
-                    label = { Text(tr("Stable", "اسٹیبل")) },
-                )
-                FilterChip(
-                    selected = prefs.engineChannel == "nightly",
-                    onClick = { Settings.update { it.copy(engineChannel = "nightly") } },
-                    label = { Text(tr("Nightly", "نائٹلی")) },
-                )
-            }
-            Hint(tr("Nightly gets the newest site fixes first but can be less stable.", "نائٹلی میں سائٹس کی نئی فکسز پہلے آتی ہیں مگر کم مستحکم ہو سکتی ہے۔"))
-        }
-        HorizontalDivider()
-        ClickRow(
-            tr("Update engine", "انجن اپڈیٹ کریں"),
-            subtitle = if (busy) tr("Updating… please wait", "اپڈیٹ ہو رہا ہے… انتظار کریں") else tr("Fixes sites that stopped working", "وہ سائٹس ٹھیک کرتا ہے جو چلنا بند ہو گئی ہوں"),
-        ) {
-            if (!busy) {
-                busy = true
-                scope.launch {
-                    val channel = Settings.value.engineChannel
-                    val res = withContext(Dispatchers.IO) {
-                        try {
-                            Result.success(Engine.update(ctx, channel))
-                        } catch (t: Throwable) {
-                            LogStore.e("engine", "Engine update failed", t = t)
-                            Result.failure<String>(t)
-                        }
-                    }
-                    busy = false
-                    version = LogStore.engineVersion
-                    Settings.update { it.copy(lastEngineCheck = System.currentTimeMillis()) }
-                    res.fold(
-                        onSuccess = { msg ->
-                            LogStore.i("engine", "Engine update: $msg")
-                            Toast.makeText(ctx, msg.take(120), Toast.LENGTH_LONG).show()
-                        },
-                        onFailure = { t ->
-                            Toast.makeText(
-                                ctx,
-                                tr("Update failed (see Log): ", "اپڈیٹ ناکام (لاگ دیکھیں): ") + ((t.cause ?: t).message ?: "").take(100),
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        },
-                    )
-                }
-            }
-        }
-        HorizontalDivider()
-        ClickRow(
-            tr("Reset engine", "انجن ری سیٹ کریں"),
-            subtitle = tr("Use this if downloads fail right after an update", "اپڈیٹ کے بعد ڈاؤن لوڈز ناکام ہوں تو یہ استعمال کریں"),
-        ) { confirmReset = true }
-        HorizontalDivider()
-        ClickRow(tr("Open Activity Log", "ایکٹیویٹی لاگ کھولیں"), subtitle = tr("Exact errors you can copy", "درست ایرر جنہیں کاپی کیا جا سکتا ہے")) {
-            activity.navRequest.value = "logs"
-        }
+private fun measureStorage(ctx: Context, folder: String, items: List<DownloadItem>): LiveStorage {
+    var files = 0; var videos = 0; var audios = 0; var missing = 0; var used = 0L
+    for (it in items) {
+        if (it.status != Status.DONE) continue
+        val f = if (it.filePath.isBlank()) null else java.io.File(it.filePath)
+        if (f != null && f.exists()) {
+            files++; used += f.length()
+            if (it.isAudio) audios++ else videos++
+        } else missing++
     }
-
-    if (confirmReset) {
-        AlertDialog(
-            onDismissRequest = { confirmReset = false },
-            title = { Text(tr("Reset engine?", "انجن ری سیٹ کریں؟")) },
-            text = {
-                Text(
-                    tr(
-                        "The engine files are removed and extracted fresh. The app closes now; open it again. Running downloads pause and continue later.",
-                        "انجن کی فائلیں ہٹ کر نئی بنیں گی۔ ایپ ابھی بند ہوگی، دوبارہ کھولیں۔ چلتی ڈاؤن لوڈز رک کر بعد میں جاری ہوں گی۔",
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmReset = false
-                    QueueManager.saveNow()
-                    val ok = Engine.resetFiles(ctx)
-                    LogStore.w("engine", "Engine files reset by the user (success=$ok)")
-                    Toast.makeText(ctx, tr("Engine reset. Open the app again.", "انجن ری سیٹ ہو گیا۔ ایپ دوبارہ کھولیں۔"), Toast.LENGTH_LONG).show()
-                    scope.launch {
-                        delay(1200)
-                        android.os.Process.killProcess(android.os.Process.myPid())
-                    }
-                }) { Text(tr("Reset", "ری سیٹ")) }
-            },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(tr("Cancel", "منسوخ")) } },
-        )
-    }
+    val dir = Utils.outputDir(ctx, folder)
+    val free = Utils.freeBytes(dir)
+    return LiveStorage(files, videos, audios, missing, used, if (free == Long.MAX_VALUE) 0 else free, Utils.totalBytes(dir))
 }
 
 // ============================================================================ backup
@@ -1267,7 +1105,7 @@ private fun BackupSection() {
             val r = withContext(Dispatchers.IO) { BackupManager.backup(ctx, uri) }
             Toast.makeText(
                 ctx,
-                if (r.isSuccess) tr("Backup saved", "بیک اپ محفوظ ہو گیا") else tr("Backup failed (see Log)", "بیک اپ ناکام (لاگ دیکھیں)"),
+                if (r.isSuccess) tr("Backup saved", "بیک اپ محفوظ ہو گیا") else tr("Backup failed", "بیک اپ ناکام"),
                 Toast.LENGTH_LONG,
             ).show()
         }
@@ -1297,102 +1135,28 @@ private fun BackupSection() {
     }
 }
 
-// ============================================================================ about
+// ============================================================================ legal and about
 @Suppress("DEPRECATION")
 private fun appVersion(ctx: Context): String = try {
     ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
 } catch (_: Throwable) { "?" }
 
 @Composable
-private fun AboutSection(activity: MainActivity) {
-    SectionTitle(tr("About", "ایپ کے بارے میں"))
+private fun LegalAboutSection(activity: MainActivity, onOpen: (String) -> Unit) {
+    SectionTitle(tr3("Legal & About", "Legal aur About", "قانونی اور ایپ کے بارے میں"))
     SCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LegalDocs.allIds.forEachIndexed { i, id ->
+            if (i > 0) HorizontalDivider()
+            LegalDocRow(id) { onOpen(id) }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    SCard {
+        Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("StreamSnap  v${appVersion(activity)}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Text("Capture any stream, instantly.", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(6.dp))
-            Hint(
-                tr(
-                    "For personal use. Please download only content you have the right to save.",
-                    "ذاتی استعمال کے لیے۔ صرف وہی مواد ڈاؤن لوڈ کریں جسے محفوظ کرنے کا آپ کو حق ہے۔",
-                )
-            )
             Spacer(Modifier.height(10.dp))
-            MadeBySignature()
+            MadeByAnasSignature()
         }
-    }
-}
-
-// ---------------------------------------------------------------- "Made by Anas" signature
-private class ScriptFont(val family: FontFamily, val weight: FontWeight)
-
-/**
- * Dancing Script. The font file is added to the app when it is built (assets/fonts/DancingScript.ttf);
- * if it is not there, Android's own "cursive" font is used, which is Dancing Script on stock Android.
- */
-@Composable
-private fun rememberScriptFont(): ScriptFont {
-    val ctx = LocalContext.current
-    return remember {
-        try {
-            val am = ctx.assets
-            val bold: Typeface? = if (Build.VERSION.SDK_INT >= 26) {
-                try { Typeface.Builder(am, "fonts/DancingScript.ttf").setFontVariationSettings("'wght' 700").build() } catch (_: Throwable) { null }
-            } else null
-            ScriptFont(FontFamily(bold ?: Typeface.createFromAsset(am, "fonts/DancingScript.ttf")), FontWeight.Normal)
-        } catch (_: Throwable) {
-            ScriptFont(FontFamily.Cursive, FontWeight.Bold)
-        }
-    }
-}
-
-private fun contrastRatio(a: Color, b: Color): Float {
-    val la = a.luminance() + 0.05f
-    val lb = b.luminance() + 0.05f
-    return if (la > lb) la / lb else lb / la
-}
-
-/** Moves a color toward black (light card) or white (dark card) until it can be read well on [bg]. */
-private fun legibleOn(c: Color, bg: Color, min: Float = 4.5f): Color {
-    val target = if (bg.luminance() > 0.5f) Color.Black else Color.White
-    var out = c
-    var i = 0
-    while (contrastRatio(out, bg) < min && i < 10) {
-        i++
-        out = lerp(c, target, i / 10f)
-    }
-    return out
-}
-
-@Composable
-private fun MadeBySignature() {
-    val font = rememberScriptFont()
-    val bg = MaterialTheme.colorScheme.surfaceContainerLow
-    val c1 = legibleOn(MaterialTheme.colorScheme.primary, bg)
-    val c2 = legibleOn(MaterialTheme.colorScheme.tertiary, bg)
-    val soft = legibleOn(MaterialTheme.colorScheme.onSurfaceVariant, bg)
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                "Made by",
-                style = TextStyle(fontFamily = font.family, fontWeight = font.weight, fontSize = 24.sp, color = soft),
-                modifier = Modifier.padding(bottom = 5.dp),
-            )
-            Text(
-                "Anas",
-                style = TextStyle(
-                    fontFamily = font.family, fontWeight = font.weight, fontSize = 46.sp,
-                    brush = Brush.linearGradient(listOf(c1, c2)),
-                ),
-            )
-        }
-        Spacer(Modifier.height(2.dp))
-        Box(
-            Modifier
-                .width(104.dp)
-                .height(3.dp)
-                .clip(CircleShape)
-                .background(Brush.horizontalGradient(listOf(c1, c2))),
-        )
     }
 }

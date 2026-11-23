@@ -12,8 +12,8 @@ android {
         applicationId = "com.anas.streamsnap"
         minSdk = 24
         targetSdk = 34
-        versionCode = 11
-        versionName = "1.0.10"
+        versionCode = 12
+        versionName = "2.0.0"
 
         // Both phone architectures in one universal APK (older and newer phones).
         ndk {
@@ -47,8 +47,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 on for release. The keep rules in proguard-rules.pro protect python/ffmpeg and reflection.
+            isMinifyEnabled = true
             isShrinkResources = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (file("release.jks").exists()) {
                 signingConfigs.getByName("release")
             } else {
@@ -111,6 +113,9 @@ android {
 }
 
 dependencies {
+    // Shared module: theme, "Made by Anas" signature, Firebase (auth + Firestore), legal documents
+    implementation(project(":core"))
+
     // Download engine (yt-dlp + python + ffmpeg)
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
@@ -143,4 +148,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.media3:media3-common:1.5.1")
+}
+
+// Firebase is switched on only when google-services.json exists (GitHub secret GOOGLE_SERVICES_APP_B64).
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }

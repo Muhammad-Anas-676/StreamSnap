@@ -206,7 +206,7 @@ object Notifier {
             .setContentText(item.displayTitle)
             .setStyle(NotificationCompat.BigTextStyle().bigText(item.displayTitle + "\n" + item.error))
             .setAutoCancel(true)
-            .setContentIntent(openApp(ctx, "logs"))
+            .setContentIntent(openApp(ctx, "queue"))
             .addAction(0, tr("Retry", "دوبارہ"), action(ctx, NotifActionReceiver.ACTION_RETRY, item.id))
         post(ctx, nid(BASE_FAILED, item.id), b.build())
     }

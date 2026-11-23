@@ -1,32 +1,22 @@
-# StreamSnap
+# StreamSnap 2.0
 
-**Capture any stream, instantly.**
+Do apps ek hi project mein:
 
-Native Android (Kotlin, Jetpack Compose, Material 3) video downloader for personal use.
-Paste many links, every link gets a preview card, downloads run one by one with the yt-dlp engine
-([youtubedl-android](https://github.com/yausername/youtubedl-android)). No backend, no API keys.
+| Module | App | Package |
+|---|---|---|
+| `:app` | StreamSnap (user app) | `com.anas.streamsnap` |
+| `:admin` | StreamSnap Admin (sirf developer) | `com.anas.streamsnap.admin` |
+| `:core` | shared: theme, "Made by Anas", Firebase, legal documents | library |
+
+## Kya naya hai
+- Login (Google + email/password), consent screen (Privacy, Terms, Disclaimer, Data and Activity Notice), ban / maintenance / update gate.
+- 4 tabs: Queue, History, Browser, Profile. Settings Profile ke gear icon se khulti hai.
+- Theme: Light (default), Dark, AMOLED, System + 10 accent colours (DataStore). Module: `core/.../theme`.
+- 3 languages: English (default), Roman Urdu, Urdu. Legal documents bhi usi zubaan mein.
+- Settings: Appearance sab se upar, quality ke 3 modes radio ki tarah, Parallel aur Notifications expandable, real-time storage, Legal and About.
+- Hata diya: Activity Logs screen, Proxy/Cookies/Import cookies, Auto keyboard, Engine section (engine update chupa kar chalta hai, Browser ka "Save login" bhi).
+- Security: cleartext off, backup off, R8 on (release), PIN PBKDF2 + lockout, Firestore rules.
+- Admin app: dashboard + charts, users (search, detail, ban), screen time (har visit ka exact waqt aur muddat), control (maintenance, announcement, minimum version).
 
 ## Build
-
-Push to GitHub. The workflow `.github/workflows/build-apk.yml` builds the APK
-(JDK 17, Gradle 8.13) and uploads it as the **StreamSnap-APK** artifact.
-
-Signed release build (optional): add the repo secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
-`KEY_ALIAS`, `KEY_PASSWORD`. Without them a debug APK is built.
-
-## Where to look when something fails
-
-* In the app: **Log** tab (exact errors, tap to expand, Copy / Share).
-* On GitHub: Actions run, red error lines.
-
-## Notes
-
-* Download folder default: `StreamSnap/Download` (Settings to change).
-* Modes: Automatic / Manual download, one quality for all videos or choose per video (Settings).
-* Please download only content you have the right to save.
-
-Made by Anas
-
-## Fonts
-The "Made by Anas" signature uses Dancing Script (SIL Open Font License 1.1). The GitHub Actions build downloads
-`DancingScript.ttf` into `app/src/main/assets/fonts/`; if that download fails the app falls back to Android's built-in "cursive" font.
+GitHub Actions (`.github/workflows/build-apk.yml`) 4 APK banata hai. Firebase setup ke liye `SETUP.md` dekhein.

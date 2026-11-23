@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Person
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.Settings as SettingsIcon
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
@@ -90,6 +92,9 @@ import com.anas.streamsnap.data.PLAYLIST_CONFIRM_THRESHOLD
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.Tr
 import com.anas.streamsnap.data.tr
+import com.anas.streamsnap.data.tr3
+import com.anas.streamsnap.session.Session
+import com.anas.streamsnap.core.cloud.ScreenTracker
 import com.anas.streamsnap.engine.PendingPlaylist
 import com.anas.streamsnap.engine.QueueManager
 import kotlinx.coroutines.delay
@@ -101,22 +106,51 @@ fun AppRoot(activity: MainActivity) {
     var splashDone by rememberSaveable { mutableStateOf(false) }
     val locked by activity.locked.collectAsState()
 
+    val user by Session.user.collectAsState()
+    val consented by Session.consented.collectAsState()
+    val gate by Session.gate.collectAsState()
+    val announcement by Session.announcement.collectAsState()
+    val cloud = Session.cloudOn
+
+    // 0 splash, 1 onboarding, 2 lock, 4 sign in, 5 consent, 6 blocked, 3 the app
     val stage = when {
         !splashDone -> 0
         !prefs.onboarded -> 1
         locked -> 2
+        cloud && user == null -> 4
+        cloud && !consented -> 5
+        cloud && gate != null -> 6
         else -> 3
+    }
+
+    // Once signed in and consented: tell the cloud we are here, check ban / maintenance / update, flush on leaving.
+    LaunchedEffect(user?.uid, consented) {
+        if (cloud && user != null && consented) {
+            Session.touch()
+            Session.refreshGate()
+        }
     }
 
     CompositionLocalProvider(
         LocalLayoutDirection provides (if (Tr.isUrdu) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            announcement?.let { msg ->
+                AlertDialog(
+                    onDismissRequest = { Session.dismissAnnouncement() },
+                    title = { Text(tr3("Message from the developer", "Developer ka paigham", "ڈیولپر کا پیغام")) },
+                    text = { Text(msg) },
+                    confirmButton = { TextButton(onClick = { Session.dismissAnnouncement() }) { Text(tr3("OK", "Theek hai", "ٹھیک ہے")) } },
+                )
+            }
             Crossfade(targetState = stage, animationSpec = tween(350), label = "stage") { s ->
                 when (s) {
                     0 -> SplashScreen { splashDone = true }
                     1 -> OnboardingScreen()
                     2 -> LockScreen(activity) { activity.locked.value = false }
+                    4 -> AuthScreen(activity)
+                    5 -> ConsentScreen()
+                    6 -> gate?.let { GateScreen(it) }
                     else -> MainScaffold(activity)
                 }
             }
@@ -175,8 +209,8 @@ fun OnboardingScreen() {
             Icons.Filled.PlayCircle,
             tr("Play and stay private", "دیکھیں اور محفوظ رہیں"),
             tr(
-                "Built-in player with gestures, app lock, hidden folder and a full activity log you can copy.",
-                "جیسچرز والا بلٹ ان پلیئر، ایپ لاک، چھپا ہوا فولڈر اور مکمل ایکٹیویٹی لاگ جسے کاپی کیا جا سکتا ہے۔",
+                "Built-in player with gestures, app lock and a hidden folder for your private videos.",
+                "جیسچرز والا بلٹ ان پلیئر، ایپ لاک اور آپ کی نجی ویڈیوز کے لیے چھپا ہوا فولڈر۔",
             ),
         ),
     )
@@ -241,20 +275,26 @@ private val tabs = listOf(
     TabDef(Icons.Filled.Download, "Queue", "قطار"),
     TabDef(Icons.Filled.History, "History", "ہسٹری"),
     TabDef(Icons.Filled.Language, "Browser", "براؤزر"),
-    TabDef(Icons.Filled.BugReport, "Log", "لاگ"),
-    TabDef(Icons.Filled.SettingsIcon, "Settings", "سیٹنگز"),
+    TabDef(Icons.Filled.Person, "Profile", "پروفائل"),
 )
 
 @Composable
 fun MainScaffold(activity: MainActivity) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
     val nav by activity.navRequest.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val pending by QueueManager.pendingPlaylists.collectAsState()
 
     LaunchedEffect(nav) {
         nav?.let {
-            tab = when (it) { "history" -> 1; "browser" -> 2; "logs" -> 3; "settings" -> 4; else -> 0 }
+            when (it) {
+                "history" -> tab = 1
+                "browser" -> tab = 2
+                "profile" -> tab = 3
+                "settings" -> { tab = 3; showSettings = true }
+                else -> tab = 0
+            }
             activity.navRequest.value = null
         }
     }
@@ -267,7 +307,6 @@ fun MainScaffold(activity: MainActivity) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(tab) {
-        if (Settings.value.autoKeyboard) return@LaunchedEffect
         repeat(10) {
             focusManager.clearFocus(force = true)
             keyboard?.hide()
@@ -278,6 +317,12 @@ fun MainScaffold(activity: MainActivity) {
         keyboard?.hide()
     }
 
+    // Screen time for the admin: each tab is a screen (Settings and Legal report themselves).
+    LaunchedEffect(tab, showSettings) {
+        if (!showSettings) ScreenTracker.enter(when (tab) { 0 -> "Queue"; 1 -> "History"; 2 -> "Browser"; else -> "Profile" })
+    }
+    BackHandler(enabled = showSettings) { showSettings = false }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -287,7 +332,7 @@ fun MainScaffold(activity: MainActivity) {
                 tabs.forEachIndexed { i, t ->
                     NavigationBarItem(
                         selected = tab == i,
-                        onClick = { tab = i },
+                        onClick = { tab = i; showSettings = false },
                         icon = { Icon(t.icon, contentDescription = null) },
                         label = { Text(tr(t.en, t.ur)) },
                     )
@@ -297,16 +342,17 @@ fun MainScaffold(activity: MainActivity) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             AnimatedContent(
-                targetState = tab,
+                targetState = tab to showSettings,
                 transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
                 label = "tabs",
-            ) { t ->
-                when (t) {
+            ) { (t, settingsOpen) ->
+                if (settingsOpen) {
+                    SettingsScreen(activity, onBack = { showSettings = false })
+                } else when (t) {
                     0 -> HomeScreen(activity)
                     1 -> HistoryScreen()
                     2 -> BrowserScreen()
-                    3 -> LogScreen()
-                    else -> SettingsScreen(activity)
+                    else -> ProfileScreen(onOpenSettings = { showSettings = true })
                 }
             }
         }

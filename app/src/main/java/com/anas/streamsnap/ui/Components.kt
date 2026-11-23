@@ -1,5 +1,17 @@
 package com.anas.streamsnap.ui
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
+import com.anas.streamsnap.data.tr3
+import com.anas.streamsnap.util.Utils
+
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -23,6 +35,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.anas.streamsnap.core.theme.ensureContrast
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.anas.streamsnap.data.Status
@@ -76,7 +89,7 @@ fun statusText(s: Status, reason: String = ""): String = when (s) {
 fun statusColor(s: Status): Color = when (s) {
     Status.DOWNLOADING -> MaterialTheme.colorScheme.primary
     Status.FAILED -> MaterialTheme.colorScheme.error
-    Status.DONE -> Color(0xFF1FA971)
+    Status.DONE -> ensureContrast(Color(0xFF1FA971), MaterialTheme.colorScheme.surfaceContainerHighest, 4.7f)
     Status.WAITING, Status.PAUSED -> MaterialTheme.colorScheme.tertiary
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
@@ -136,5 +149,86 @@ fun ClickRow(title: String, subtitle: String? = null, trailing: String? = null, 
         if (trailing != null) {
             Text(trailing, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
+    }
+}
+
+
+// ----------------------------------------------------------------------------- platform tag
+private class Platform(val label: String, val bg: Color?)
+
+private fun platformOf(site: String, url: String): Platform {
+    val h = (site + " " + url).lowercase()
+    return when {
+        "youtube" in h || "youtu.be" in h -> Platform("YT", Color(0xFFC4001B))
+        "instagram" in h -> Platform("IG", Color(0xFFB5175F))
+        "tiktok" in h -> Platform("TT", Color(0xFF161616))
+        "facebook" in h || "fb.watch" in h -> Platform("FB", Color(0xFF1565C0))
+        "twitter" in h || "x.com" in h -> Platform("X", Color(0xFF161616))
+        "soundcloud" in h -> Platform("SC", Color(0xFFB93C00))
+        "vimeo" in h -> Platform("VM", Color(0xFF0E6F8A))
+        "twitch" in h -> Platform("TW", Color(0xFF7239D6))
+        "reddit" in h -> Platform("RD", Color(0xFFB93C00))
+        else -> Platform((site.trim().firstOrNull() ?: 'W').uppercaseChar().toString(), null)
+    }
+}
+
+/** Small coloured tag with the platform's initials (white text on a deep brand colour, readable in every theme). */
+@Composable
+fun PlatformTag(site: String, url: String, modifier: Modifier = Modifier) {
+    val pf = remember(site, url) { platformOf(site, url) }
+    val bg = pf.bg ?: MaterialTheme.colorScheme.surfaceContainerHighest
+    val fg = if (pf.bg != null) Color.White else MaterialTheme.colorScheme.onSurface
+    androidx.compose.material3.Text(
+        pf.label,
+        modifier = modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).background(bg)
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+        color = fg, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+    )
+}
+
+// ----------------------------------------------------------------------------- storage meter (real numbers)
+/** Used by StreamSnap, free and total space, measured from the real files and the real disk. */
+@Composable
+fun StorageMeter(modifier: Modifier = Modifier) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val prefs by com.anas.streamsnap.data.Settings.state.collectAsState()
+    val items by com.anas.streamsnap.engine.QueueManager.items.collectAsState()
+    var stats by remember { mutableStateOf(Triple(0L, 0L, 0L)) } // used by app, free, total
+    val doneKey = items.count { it.status == Status.DONE }
+    LaunchedEffect(doneKey, prefs.folder) {
+        stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val dir = com.anas.streamsnap.util.Utils.outputDir(ctx, prefs.folder)
+            var used = 0L
+            for (it in items) {
+                if (it.status == Status.DONE && it.filePath.isNotBlank()) {
+                    try { val f = java.io.File(it.filePath); if (f.exists()) used += f.length() } catch (_: Throwable) { }
+                }
+            }
+            Triple(used, com.anas.streamsnap.util.Utils.freeBytes(dir), com.anas.streamsnap.util.Utils.totalBytes(dir))
+        }
+    }
+    val (used, free, total) = stats
+    val frac = if (total > 0) ((total - free).toFloat() / total).coerceIn(0f, 1f) else 0f
+    Column(modifier) {
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+        ) {
+            Text(
+                tr3("StreamSnap: ${Utils.fmtBytes(used)}", "StreamSnap: ${Utils.fmtBytes(used)}", "اسٹریم اسنیپ: ${Utils.fmtBytes(used)}"),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                tr3("${Utils.fmtBytes(free)} free", "${Utils.fmtBytes(free)} khali", "${Utils.fmtBytes(free)} خالی"),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        androidx.compose.foundation.layout.Spacer(Modifier.height(4.dp))
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { frac },
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(androidx.compose.foundation.shape.CircleShape),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
     }
 }

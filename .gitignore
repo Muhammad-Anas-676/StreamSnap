@@ -12,3 +12,7 @@ app/release.jks
 *.jks
 *.keystore
 google-services.json
+
+admin/build
+admin/release.jks
+core/build

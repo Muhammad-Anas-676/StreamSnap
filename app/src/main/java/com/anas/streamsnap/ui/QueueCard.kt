@@ -68,6 +68,7 @@ import com.anas.streamsnap.data.Tr
 import com.anas.streamsnap.data.chipQualitiesFor
 import com.anas.streamsnap.data.qualityLabel
 import com.anas.streamsnap.data.tr
+import com.anas.streamsnap.data.tr3
 import com.anas.streamsnap.engine.QueueManager
 import com.anas.streamsnap.util.HintAction
 import com.anas.streamsnap.util.Hints
@@ -101,7 +102,6 @@ fun SwipeQueueCard(
     dragging: Boolean,
     handle: Modifier,
     modifier: Modifier,
-    onOpenLog: () -> Unit,
     selecting: Boolean = false,
     selected: Boolean = false,
     onToggle: () -> Unit = {},
@@ -152,7 +152,7 @@ fun SwipeQueueCard(
             }
         },
     ) {
-        QueueCard(item, prefs, dragging, handle, onOpenLog, selecting, selected, onToggle, onSelect)
+        QueueCard(item, prefs, dragging, handle, selecting, selected, onToggle, onSelect)
     }
 }
 
@@ -162,7 +162,6 @@ fun QueueCard(
     prefs: Prefs,
     dragging: Boolean,
     handle: Modifier,
-    onOpenLog: () -> Unit,
     selecting: Boolean = false,
     selected: Boolean = false,
     onToggle: () -> Unit = {},
@@ -178,6 +177,9 @@ fun QueueCard(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (dragging) 10.dp else 0.dp),
     ) {
@@ -216,6 +218,14 @@ fun QueueCard(
                         }
                         Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         StatusLine(item, autoPick, prefs)
+                        if (item.status == Status.DOWNLOADING) {
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(androidx.compose.foundation.shape.CircleShape),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            )
+                        }
                     }
                 }
                 if (!selecting) Trailing(item, progress, hideForPick = autoPick)
@@ -256,7 +266,7 @@ fun QueueCard(
                         }
                     }
                 }
-                TextButton(onClick = onOpenLog) { Text(tr("View exact error in Log", "لاگ میں درست ایرر دیکھیں")) }
+                TextButton(onClick = { copyToClipboard(ctx, "error", item.error) }) { Text(tr3("Copy error", "Error copy karein", "ایرر کاپی کریں")) }
             }
         }
     }
@@ -297,7 +307,7 @@ private fun StatusLine(item: DownloadItem, autoPick: Boolean, prefs: Prefs) {
 @Composable
 private fun Thumb(item: DownloadItem, overlay: @Composable () -> Unit = {}) {
     Box(
-        Modifier.width(112.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
+        Modifier.width(104.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
         when {
@@ -312,6 +322,7 @@ private fun Thumb(item: DownloadItem, overlay: @Composable () -> Unit = {}) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        PlatformTag(item.site, item.url, Modifier.align(Alignment.TopStart).padding(4.dp))
         Box(Modifier.align(Alignment.TopEnd).padding(3.dp)) { overlay() }
         if (item.durationSec > 0) {
             Text(

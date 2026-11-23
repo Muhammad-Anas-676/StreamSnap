@@ -1,5 +1,6 @@
 package com.anas.streamsnap.ui
 
+import com.anas.streamsnap.data.tr3
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
@@ -274,7 +275,6 @@ fun HomeScreen(activity: MainActivity) {
                         handle = handle,
                         modifier = if (dragging) Modifier.zIndex(1f).graphicsLayer { translationY = dragOffset }
                         else Modifier.animateItem(),
-                        onOpenLog = { activity.navRequest.value = "logs" },
                         selecting = selecting,
                         selected = item.id in selected,
                         onToggle = { toggle(item.id) },
@@ -402,54 +402,74 @@ private fun HomeHeader() {
     val prefs by Settings.state.collectAsState()
     var qMenu by remember { mutableStateOf(false) }
     val ask = prefs.qualityMode == "ask"
+    val custom = prefs.cvOn
 
     Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Image(
                 painterResource(R.drawable.streamsnap_logo), null,
-                Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)),
+                Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)),
             )
-            Column {
-                Text("StreamSnap", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(
-                    tr("Paste links, get videos", "لنک پیسٹ کریں، ویڈیوز پائیں"),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = true,
+            Text(
+                "StreamSnap", modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            // Mode pill: tap to switch Automatic / Manual
+            Surface(
                 onClick = {
                     Settings.update { it.copy(autoStart = !it.autoStart) }
                     QueueManager.recheck()
                 },
-                label = { Text(if (prefs.autoStart) tr("Automatic", "خودکار") else tr("Manual", "دستی")) },
-                leadingIcon = {
-                    Icon(if (prefs.autoStart) Icons.Filled.FlashOn else Icons.Filled.TouchApp, null, Modifier.size(18.dp))
-                },
-            )
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (prefs.autoStart) Icons.Filled.FlashOn else Icons.Filled.TouchApp, null,
+                        Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        if (prefs.autoStart) tr3("Auto", "Auto", "خودکار") else tr3("Manual", "Manual", "دستی"),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StorageMeter(Modifier.weight(1f))
             androidx.compose.foundation.layout.Box {
-                AssistChip(
+                Surface(
                     onClick = { qMenu = true },
-                    label = {
-                        Text(
-                            if (ask) tr("Quality: each video", "کوالٹی: ہر ویڈیو")
-                            else tr("Quality: ", "کوالٹی: ") + qualityLabel(prefs.defaultQuality)
-                        )
-                    },
-                )
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Text(
+                        when {
+                            custom -> tr3("Custom", "Custom", "کسٹم")
+                            ask -> tr3("Each video", "Har video", "ہر ویڈیو")
+                            else -> qualityLabel(prefs.defaultQuality)
+                        },
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 DropdownMenu(expanded = qMenu, onDismissRequest = { qMenu = false }) {
                     DropdownMenuItem(
-                        text = { Text(tr("Pick for each video", "ہر ویڈیو کی الگ چنیں")) },
-                        onClick = { Settings.update { it.copy(qualityMode = "ask") }; qMenu = false },
+                        text = { Text(tr3("Pick for each video", "Har video ki alag chunein", "ہر ویڈیو کی الگ چنیں")) },
+                        onClick = { Settings.update { it.copy(qualityMode = "ask", cvOn = false) }; qMenu = false },
                     )
                     QUALITY_OPTIONS.forEach { (k, label) ->
                         DropdownMenuItem(
-                            text = { Text(tr("All videos: ", "تمام ویڈیوز: ") + label) },
+                            text = { Text(tr3("All videos: ", "Tamam videos: ", "تمام ویڈیوز: ") + label) },
                             onClick = {
-                                Settings.update { it.copy(qualityMode = "fixed", defaultQuality = k) }
+                                Settings.update { it.copy(qualityMode = "fixed", defaultQuality = k, cvOn = false) }
                                 qMenu = false
                             },
                         )
@@ -466,9 +486,20 @@ private fun AddCard(input: String, onInput: (String) -> Unit, onAdd: () -> Unit,
     val prefs by Settings.state.collectAsState()
     Card(
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            val firstUrl = remember(input) { Utils.extractUrls(input).firstOrNull() }
+            if (firstUrl != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PlatformTag(Utils.siteName(firstUrl), firstUrl)
+                    Text(
+                        Utils.hostOf(firstUrl), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    )
+                }
+            }
             OutlinedTextField(
                 value = input,
                 onValueChange = onInput,

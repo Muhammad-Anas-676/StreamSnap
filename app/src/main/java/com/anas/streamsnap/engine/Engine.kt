@@ -731,7 +731,7 @@ object Engine {
             }
             restoreOriginal(inFile, src)
             LogStore.w("download", "Your video settings could not be applied; the video is saved as downloaded", item.url, detail = failureText(msg, msg, emptyList(), LogStore.stack(t)))
-            return DownloadOutcome(true, srcPath, tr("Saved as downloaded: your video settings could not be applied. See the Log.", "جیسی ڈاؤن لوڈ ہوئی ویسی محفوظ ہے: آپ کی ویڈیو سیٹنگز لاگو نہیں ہو سکیں۔ لاگ دیکھیں۔"))
+            return DownloadOutcome(true, srcPath, tr("Saved as downloaded: your video settings could not be applied.", "جیسی ڈاؤن لوڈ ہوئی ویسی محفوظ ہے: آپ کی ویڈیو سیٹنگز لاگو نہیں ہو سکیں۔"))
         } finally {
             partials.remove(item.id)
             try { work.deleteRecursively() } catch (_: Throwable) { }

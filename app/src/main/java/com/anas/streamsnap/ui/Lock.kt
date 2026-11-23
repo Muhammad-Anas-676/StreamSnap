@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,6 +51,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.anas.streamsnap.data.Settings
+import com.anas.streamsnap.data.tr3
 import com.anas.streamsnap.data.tr
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -79,6 +81,13 @@ fun LockScreen(activity: ComponentActivity, onUnlock: () -> Unit) {
     val prefs by Settings.state.collectAsState()
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
+    var remain by remember { mutableIntStateOf(Settings.lockRemainingSec()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            remain = Settings.lockRemainingSec()
+            kotlinx.coroutines.delay(1000)
+        }
+    }
     val shake = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val bioOk = prefs.lockBiometric && canUseBiometric(ctx)
@@ -86,7 +95,7 @@ fun LockScreen(activity: ComponentActivity, onUnlock: () -> Unit) {
     LaunchedEffect(Unit) { if (bioOk) showBiometric(activity, onUnlock) }
 
     fun press(d: String) {
-        if (pin.length >= 4) return
+        if (pin.length >= 4 || remain > 0) return
         error = false
         pin += d
         if (pin.length == 4) {
@@ -94,6 +103,7 @@ fun LockScreen(activity: ComponentActivity, onUnlock: () -> Unit) {
                 onUnlock()
             } else {
                 error = true
+                remain = Settings.lockRemainingSec()
                 pin = ""
                 scope.launch {
                     repeat(3) {
@@ -114,8 +124,12 @@ fun LockScreen(activity: ComponentActivity, onUnlock: () -> Unit) {
         Text("StreamSnap", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
         Spacer(Modifier.height(6.dp))
         Text(
-            if (error) tr("Wrong PIN, try again", "غلط PIN، دوبارہ کوشش کریں") else tr("Enter your PIN", "اپنا PIN درج کریں"),
-            color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            when {
+                remain > 0 -> tr3("Too many wrong tries. Wait $remain s.", "Bohat ghalat koshishein. $remain second intezar karein.", "بہت زیادہ غلط کوششیں۔ $remain سیکنڈ انتظار کریں۔")
+                error -> tr("Wrong PIN, try again", "غلط PIN، دوبارہ کوشش کریں")
+                else -> tr("Enter your PIN", "اپنا PIN درج کریں")
+            },
+            color = if (error || remain > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
         Row(

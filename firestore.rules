@@ -1,0 +1,70 @@
+rules_version = '2';
+
+// StreamSnap Firestore rules. Paste into Firebase console > Firestore Database > Rules > Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // An admin is a signed-in account that has a document in the "admins" collection (create it by hand in the console).
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function notBanned() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status != 'banned';
+    }
+
+    // Each person may only read their own admin document (this is how the admin app checks access).
+    match /admins/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      // A new account always starts as "active".
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.status == 'active';
+      // Users can update their own document but can never change "status"; only an admin can (ban / unban).
+      allow update: if signedIn() && (
+        (request.auth.uid == uid && request.resource.data.status == resource.data.status) || isAdmin()
+      );
+      allow delete: if false;
+    }
+
+    // One document per link: <uid>_<itemId>
+    match /events_links/{id} {
+      allow read: if isAdmin();
+      allow create, update: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && id.matches(request.auth.uid + '_.*')
+        && request.resource.data.url is string
+        && request.resource.data.url.size() <= 600
+        && notBanned();
+      allow delete: if false;
+    }
+
+    // One document per screen visit.
+    match /events_screens/{id} {
+      allow read: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.screen is string
+        && request.resource.data.durationMs is number
+        && notBanned();
+      allow update, delete: if false;
+    }
+
+    // Maintenance / announcement / minimum version: everyone signed in can read, only admins can write.
+    match /config/{doc} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

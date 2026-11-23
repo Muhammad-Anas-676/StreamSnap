@@ -1,0 +1,2 @@
+-keep class com.anas.streamsnap.core.** { *; }
+-keep class com.google.android.libraries.identity.googleid.** { *; }

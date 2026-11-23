@@ -108,21 +108,6 @@ data class DownloadItem(
     }
 }
 
-object Accents {
-    // name, color (ARGB)
-    val list: List<Pair<String, Long>> = listOf(
-        "Ocean" to 0xFF1C68FA,
-        "Sunset" to 0xFFFF7A2E,
-        "Emerald" to 0xFF1FA971,
-        "Violet" to 0xFF7C4DFF,
-        "Rose" to 0xFFE91E63,
-        "Teal" to 0xFF00A8A8,
-        "Amber" to 0xFFF5A623,
-        "Slate" to 0xFF5C6B7A,
-    )
-    const val DYNAMIC = 99
-}
-
 /** Every quality the user can choose (Settings list, and chips on each card in per-video mode). */
 val QUALITY_OPTIONS: List<Pair<String, String>> = listOf(
     "best" to "Best",

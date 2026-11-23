@@ -15,4 +15,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "StreamSnap"
+include(":core")
 include(":app")
+include(":admin")

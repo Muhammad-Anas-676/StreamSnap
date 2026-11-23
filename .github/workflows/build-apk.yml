@@ -1,9 +1,12 @@
-name: Build StreamSnap APK
+name: Build StreamSnap + Admin APKs
 
 on:
   push:
     branches: [ main, master, Main ]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -23,32 +26,23 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Prepare the fixed signing key (used when you have no secrets)
+      - name: Prepare the fixed signing key (used when you have no secrets of your own)
         run: |
-          if [ -f app/debug-keystore.b64 ]; then
-            base64 -d app/debug-keystore.b64 > app/debug-fixed.keystore
-          fi
-
-      - name: Download the Dancing Script font (free OFL font, used for "Made by Anas")
-        continue-on-error: true
-        run: |
-          mkdir -p app/src/main/assets/fonts
-          F=app/src/main/assets/fonts/DancingScript.ttf
-          for U in \
-            "https://github.com/google/fonts/raw/main/ofl/dancingscript/DancingScript%5Bwght%5D.ttf" \
-            "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/dancingscript/DancingScript%5Bwght%5D.ttf"; do
-            rm -f "$F"
-            if curl -fsSL --retry 3 -o "$F" "$U" \
-               && [ "$(wc -c < "$F")" -gt 50000 ] \
-               && [ "$(head -c 4 "$F" | od -An -tx1 | tr -d ' \n')" = "00010000" ]; then
-              echo "Font downloaded from $U"
-              break
+          for M in app admin; do
+            if [ -f "$M/debug-keystore.b64" ]; then
+              base64 -d "$M/debug-keystore.b64" > "$M/debug-fixed.keystore"
             fi
-            rm -f "$F"
           done
-          ls -l app/src/main/assets/fonts || true
 
-      - name: Build APK (your key if secrets exist, else the fixed key)
+      - name: Add the Firebase config files (from GitHub Secrets)
+        env:
+          GS_APP: ${{ secrets.GOOGLE_SERVICES_APP_B64 }}
+          GS_ADMIN: ${{ secrets.GOOGLE_SERVICES_ADMIN_B64 }}
+        run: |
+          if [ -n "$GS_APP" ]; then printf '%s' "$GS_APP" | base64 -d > app/google-services.json; else echo "No GOOGLE_SERVICES_APP_B64 secret: user app is built without Firebase"; fi
+          if [ -n "$GS_ADMIN" ]; then printf '%s' "$GS_ADMIN" | base64 -d > admin/google-services.json; else echo "No GOOGLE_SERVICES_ADMIN_B64 secret: admin app is built without Firebase"; fi
+
+      - name: Build debug + release APKs for both apps
         env:
           KS: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -57,21 +51,33 @@ jobs:
         run: |
           if [ -n "$KS" ]; then
             printf '%s' "$KS" | base64 -d > app/release.jks
+            cp app/release.jks admin/release.jks
           fi
-          gradle assembleRelease --stacktrace
+          gradle :app:assembleDebug :app:assembleRelease :admin:assembleDebug :admin:assembleRelease --stacktrace
 
-      - name: Print signing fingerprints (public info)
+      - name: Collect the 4 APKs with clear names
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk   dist/StreamSnap-user-release.apk
+          cp app/build/outputs/apk/debug/*.apk     dist/StreamSnap-user-debug.apk
+          cp admin/build/outputs/apk/release/*.apk dist/StreamSnap-admin-release.apk
+          cp admin/build/outputs/apk/debug/*.apk   dist/StreamSnap-admin-debug.apk
+          ls -l dist
+
+      - name: Print the signing fingerprint to register in Firebase (public info)
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           if [ -f app/release.jks ]; then
             keytool -list -v -keystore app/release.jks -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" | grep -E "SHA1|SHA256" || true
+          elif [ -f app/debug-fixed.keystore ]; then
+            keytool -list -v -keystore app/debug-fixed.keystore -alias androiddebugkey -storepass android | grep -E "SHA1|SHA256" || true
           fi
 
-      - name: Upload APK
+      - name: Upload the APKs
         uses: actions/upload-artifact@v4
         with:
-          name: StreamSnap-APK
-          path: app/build/outputs/apk/**/*.apk
+          name: StreamSnap-APKs
+          path: dist/*.apk
           if-no-files-found: error

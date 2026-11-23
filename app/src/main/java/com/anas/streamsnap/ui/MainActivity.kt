@@ -16,6 +16,9 @@ import androidx.compose.runtime.key
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.anas.streamsnap.core.cloud.ScreenTracker
+import com.anas.streamsnap.core.theme.AppTheme
+import com.anas.streamsnap.session.ProfileStore
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.engine.AddResult
@@ -48,18 +51,14 @@ class MainActivity : AppCompatActivity() {
                 Settings.state.map { it.blockScreenshots }.distinctUntilChanged().collect { applySecure(it) }
             }
         }
-        // Keyboard mode is a live switch in Settings (Appearance > Auto keyboard).
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.CREATED) {
-                Settings.state.map { it.autoKeyboard }.distinctUntilChanged().collect { applyKeyboardMode(it) }
-            }
-        }
+        // The keyboard opens only when a text field is tapped.
+        applyKeyboardMode()
 
         setContent {
             val prefs by Settings.state.collectAsState()
             // Rebuild the whole UI when the language changes.
             key(prefs.language) {
-                StreamSnapTheme(prefs) { AppRoot(this@MainActivity) }
+                AppTheme { AppRoot(this@MainActivity) }
             }
         }
     }
@@ -80,10 +79,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyKeyboardMode(auto: Boolean) {
-        val state = if (auto) WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED
-        else WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
-        window.setSoftInputMode(state or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+    private fun applyKeyboardMode() {
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
     private fun applySecure(on: Boolean) {
@@ -93,6 +90,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        ScreenTracker.resume()
         Notifier.clearClipboard(this)
         if (Settings.value.appLock && backgroundedAt > 0 &&
             SystemClock.elapsedRealtime() - backgroundedAt > 20_000
@@ -100,6 +98,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        // The screen timer stops while the app is in the background; the visit is saved now.
+        ScreenTracker.pause()
+        ProfileStore.markLeft()
         backgroundedAt = SystemClock.elapsedRealtime()
         QueueManager.saveNow()
         // Link still sitting in the clipboard card? Leave a notification with an "Add" button.

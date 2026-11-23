@@ -35,7 +35,7 @@ class QuickAddActivity : Activity() {
             }
         } catch (t: Throwable) {
             LogStore.e("widget", "Quick paste failed", t = t)
-            Toast.makeText(this, tr("Could not add the link (see Log)", "لنک شامل نہیں ہو سکا (لاگ دیکھیں)"), Toast.LENGTH_LONG).show()
+            Toast.makeText(this, tr("Could not add the link", "لنک شامل نہیں ہو سکا"), Toast.LENGTH_LONG).show()
         }
         finish()
     }

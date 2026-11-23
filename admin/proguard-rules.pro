@@ -1,0 +1,5 @@
+-keep class com.anas.streamsnap.** { *; }
+-keep class com.google.android.libraries.identity.googleid.** { *; }
+-dontwarn org.slf4j.**
+-dontwarn javax.annotation.**
+-keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod
