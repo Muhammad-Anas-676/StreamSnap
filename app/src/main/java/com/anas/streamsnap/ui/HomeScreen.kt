@@ -1,5 +1,8 @@
 package com.anas.streamsnap.ui
 
+import com.anas.streamsnap.session.Session
+import com.anas.streamsnap.core.theme.BannerPalette
+import androidx.compose.material.icons.filled.Campaign
 import com.anas.streamsnap.data.tr3
 import android.content.ClipboardManager
 import android.content.Context
@@ -21,7 +24,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -159,6 +161,7 @@ fun HomeScreen(activity: MainActivity) {
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        AnnouncementBanner()
         HomeHeader()
         LazyColumn(
             state = listState,
@@ -397,6 +400,27 @@ fun HomeScreen(activity: MainActivity) {
 }
 
 // ----------------------------------------------------------------------------------- header
+/** Admin announcement at the top of the Queue screen, in the colour the admin chose. Can be dismissed. */
+@Composable
+private fun AnnouncementBanner() {
+    val current by Session.banner.collectAsState()
+    val banner = current ?: return
+    val (fill, textColor) = remember(banner.color) { BannerPalette.fillAndText(BannerPalette.entry(banner.color).color) }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp)
+            .clip(MaterialTheme.shapes.medium).background(fill)
+            .padding(start = 14.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(Icons.Filled.Campaign, null, tint = textColor)
+        Text(banner.text, modifier = Modifier.weight(1f), color = textColor, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        IconButton(onClick = { Session.dismissBanner() }) {
+            Icon(Icons.Filled.Close, contentDescription = tr3("Dismiss", "Hataein", "ہٹائیں"), tint = textColor)
+        }
+    }
+}
+
 @Composable
 private fun HomeHeader() {
     val prefs by Settings.state.collectAsState()
@@ -483,13 +507,12 @@ private fun HomeHeader() {
 // ----------------------------------------------------------------------------------- cards
 @Composable
 private fun AddCard(input: String, onInput: (String) -> Unit, onAdd: () -> Unit, onPaste: () -> Unit, onSaveLater: () -> Unit) {
-    val prefs by Settings.state.collectAsState()
     Card(
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val firstUrl = remember(input) { Utils.extractUrls(input).firstOrNull() }
             if (firstUrl != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -504,8 +527,8 @@ private fun AddCard(input: String, onInput: (String) -> Unit, onAdd: () -> Unit,
                 value = input,
                 onValueChange = onInput,
                 modifier = Modifier.fillMaxWidth().tapToType(),
-                minLines = 2,
-                maxLines = 5,
+                minLines = 1,
+                maxLines = 3,
                 placeholder = { Text(tr("Paste video links here (one or many)", "ویڈیو لنک یہاں پیسٹ کریں (ایک یا کئی)")) },
                 shape = MaterialTheme.shapes.large,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -526,11 +549,6 @@ private fun AddCard(input: String, onInput: (String) -> Unit, onAdd: () -> Unit,
                     Icon(Icons.Filled.Bookmark, contentDescription = tr("Save for later", "بعد کے لیے محفوظ"))
                 }
             }
-            Text(
-                if (prefs.autoStart) tr("Automatic: downloads start as soon as a link is pasted.", "خودکار: لنک پیسٹ کرتے ہی ڈاؤن لوڈ شروع ہو جاتی ہے۔")
-                else tr("Manual: tap the download icon on a card to start.", "دستی: شروع کرنے کے لیے کارڈ پر ڈاؤن لوڈ آئیکن دبائیں۔"),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

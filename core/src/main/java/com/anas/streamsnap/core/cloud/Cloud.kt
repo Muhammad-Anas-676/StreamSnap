@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
@@ -20,6 +21,7 @@ object Cloud {
     const val SCREENS = "events_screens"
     const val ADMINS = "admins"
     const val CONFIG = "config"
+    const val ERRORS = "events_errors"
 
     @Volatile private var appCtx: Context? = null
 
@@ -95,15 +97,82 @@ object Cloud {
     suspend fun fetchConfig(): AppConfig? = try {
         if (!ready) null else {
             val d = db().collection(CONFIG).document("app").get().await()
-            if (!d.exists()) AppConfig() else AppConfig(
-                maintenance = d.getBoolean("maintenance") ?: false,
-                announcement = d.getString("announcement") ?: "",
-                announcementId = d.getLong("announcementId") ?: 0,
-                minVersionCode = d.getLong("minVersionCode") ?: 0,
-            )
+            if (!d.exists()) AppConfig() else d.toConfig()
         }
     } catch (_: Throwable) {
         null
+    }
+
+    // --------------------------------------------------------------------------- live data (app side)
+
+    /** Live copy of `config/app`: banner, maintenance and minimum version change without restarting the app. */
+    fun listenConfig(cb: (AppConfig) -> Unit): ListenerRegistration? = try {
+        if (!ready) null else db().collection(CONFIG).document("app").addSnapshotListener { d, _ ->
+            if (d != null) cb(if (d.exists()) d.toConfig() else AppConfig())
+        }
+    } catch (_: Throwable) {
+        null
+    }
+
+    /** Live copy of the user's own document (a ban applies immediately). */
+    fun listenUserDoc(uid: String, cb: (CloudUser?) -> Unit): ListenerRegistration? = try {
+        if (!ready) null else db().collection(USERS).document(uid).addSnapshotListener { d, _ ->
+            if (d != null) cb(d.toUser())
+        }
+    } catch (_: Throwable) {
+        null
+    }
+
+    /** Messages sent by the admin that were not shown yet. */
+    fun listenNotifications(uid: String, cb: (List<AdminNotice>) -> Unit): ListenerRegistration? = try {
+        if (!ready) null else db().collection(USERS).document(uid).collection("notifications")
+            .whereEqualTo("delivered", false)
+            .addSnapshotListener { snap, _ ->
+                if (snap != null) {
+                    cb(
+                        snap.documents.map {
+                            AdminNotice(
+                                id = it.id, title = it.getString("title") ?: "", message = it.getString("message") ?: "",
+                                createdAt = it.getLong("createdAt") ?: 0,
+                            )
+                        }.sortedBy { it.createdAt },
+                    )
+                }
+            }
+    } catch (_: Throwable) {
+        null
+    }
+
+    fun markNoticeDelivered(uid: String, id: String) {
+        if (!ready) return
+        try {
+            db().collection(USERS).document(uid).collection("notifications").document(id)
+                .update(mapOf("delivered" to true, "deliveredAt" to System.currentTimeMillis()))
+        } catch (_: Throwable) { }
+    }
+
+    /** Presence: online / offline, last heartbeat and what the user is doing. */
+    fun updatePresence(uid: String, online: Boolean, activity: String) {
+        if (!ready) return
+        try {
+            db().collection(USERS).document(uid).set(
+                hashMapOf<String, Any>("isOnline" to online, "lastActive" to System.currentTimeMillis(), "currentActivity" to activity),
+                SetOptions.merge(),
+            )
+        } catch (_: Throwable) { }
+    }
+
+    /** Reports an error that is not a failed download (for example an app crash). */
+    fun logError(uid: String, type: String, message: String, detail: String) {
+        if (!ready || uid.isBlank()) return
+        try {
+            db().collection(ERRORS).document().set(
+                hashMapOf<String, Any>(
+                    "uid" to uid, "type" to type, "message" to message.take(300),
+                    "detail" to detail.take(6000), "at" to System.currentTimeMillis(),
+                ),
+            )
+        } catch (_: Throwable) { }
     }
 
     // --------------------------------------------------------------------------- events (app side)
@@ -117,7 +186,10 @@ object Cloud {
                 "quality" to e.quality, "addedAt" to e.addedAt,
             )
             if (e.finishedAt > 0) m["finishedAt"] = e.finishedAt
-            if (e.error.isNotBlank()) m["error"] = e.error.take(200)
+            if (e.error.isNotBlank()) {
+                m["error"] = e.error.take(1500)
+                m["errorType"] = e.errorType.ifBlank { ErrorKinds.classify(e.error) }
+            }
             db().collection(LINKS).document(e.id).set(m, SetOptions.merge())
         } catch (_: Throwable) { }
     }
@@ -152,6 +224,30 @@ object Cloud {
     suspend fun fetchUsers(): List<CloudUser> =
         db().collection(USERS).limit(1000).get().await().documents.mapNotNull { it.toUser() }
 
+    /** Live list of users (presence updates arrive by themselves). */
+    fun listenUsers(cb: (List<CloudUser>) -> Unit, onError: (String) -> Unit): ListenerRegistration =
+        db().collection(USERS).limit(1000).addSnapshotListener { snap, e ->
+            if (e != null) onError(e.message ?: "Could not load users")
+            if (snap != null) cb(snap.documents.mapNotNull { it.toUser() })
+        }
+
+    suspend fun sendNotification(uid: String, title: String, message: String) {
+        db().collection(USERS).document(uid).collection("notifications").add(
+            hashMapOf<String, Any>(
+                "title" to title.trim(), "message" to message.trim(), "createdAt" to System.currentTimeMillis(),
+                "delivered" to false, "from" to "StreamSnap Team",
+            ),
+        ).await()
+    }
+
+    suspend fun fetchUserErrors(uid: String): List<ErrorEvent> =
+        db().collection(ERRORS).whereEqualTo("uid", uid).limit(300).get().await().documents.map {
+            ErrorEvent(
+                id = it.id, uid = it.getString("uid") ?: "", type = it.getString("type") ?: ErrorKinds.CRASH,
+                message = it.getString("message") ?: "", detail = it.getString("detail") ?: "", at = it.getLong("at") ?: 0,
+            )
+        }.sortedByDescending { it.at }
+
     suspend fun fetchLinks(sinceMs: Long, limit: Long = 3000): List<LinkEvent> =
         db().collection(LINKS).whereGreaterThanOrEqualTo("addedAt", sinceMs)
             .orderBy("addedAt", Query.Direction.DESCENDING).limit(limit).get().await()
@@ -179,6 +275,7 @@ object Cloud {
             hashMapOf<String, Any>(
                 "maintenance" to c.maintenance, "announcement" to c.announcement,
                 "announcementId" to c.announcementId, "minVersionCode" to c.minVersionCode,
+                "announcementColor" to c.announcementColor,
             ),
         ).await()
     }
@@ -203,13 +300,24 @@ object Cloud {
             status = getString("status") ?: "active",
             consentVersion = (getLong("consentVersion") ?: 0).toInt(),
             consentAt = getLong("consentAt") ?: 0,
+            isOnline = getBoolean("isOnline") ?: false,
+            currentActivity = getString("currentActivity") ?: "",
         )
     }
+
+    private fun DocumentSnapshot.toConfig() = AppConfig(
+        maintenance = getBoolean("maintenance") ?: false,
+        announcement = getString("announcement") ?: "",
+        announcementId = getLong("announcementId") ?: 0,
+        minVersionCode = getLong("minVersionCode") ?: 0,
+        announcementColor = getString("announcementColor") ?: "blue",
+    )
 
     private fun DocumentSnapshot.toLink() = LinkEvent(
         id = id, uid = getString("uid") ?: "", url = getString("url") ?: "", site = getString("site") ?: "",
         status = getString("status") ?: "added", quality = getString("quality") ?: "",
         addedAt = getLong("addedAt") ?: 0, finishedAt = getLong("finishedAt") ?: 0, error = getString("error") ?: "",
+        errorType = getString("errorType") ?: "",
     )
 
     private fun DocumentSnapshot.toScreen() = ScreenEvent(

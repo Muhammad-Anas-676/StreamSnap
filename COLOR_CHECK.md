@@ -18,3 +18,8 @@ Notes
 - Platform tags use white text on deep brand colours (all above 4.5:1) or the theme "on" colour on grey.
 - Browser start tiles: the fallback letter uses the better of black or white for each brand colour.
 - "Made by Anas": gradient stops are checked against the card behind them (4.5:1) in every theme.
+
+## Added in v2.1 (checked with the same Python port)
+- Announcement banner (5 colours): the fill is darkened until white text reaches 4.6:1, results 4.76 to 7.04 (amber becomes a deeper orange-brown to keep white text readable).
+- Online status text (green): 4.76 (Dark) to 4.9 (Light) on the highest surface; the offline text uses the theme `onSurfaceVariant`.
+- "Continue with Google" button: Google's own colours, 16.5:1 (light) and 14.5:1 (dark); border 5.8:1.

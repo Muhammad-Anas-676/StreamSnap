@@ -4,6 +4,7 @@ import android.app.Application
 import com.anas.streamsnap.core.cloud.Cloud
 import com.anas.streamsnap.core.theme.ThemeManager
 import com.anas.streamsnap.session.CloudSync
+import com.anas.streamsnap.session.CrashReporter
 import com.anas.streamsnap.session.ProfileStore
 import com.anas.streamsnap.session.Session
 import com.anas.streamsnap.data.Settings
@@ -20,6 +21,7 @@ class StreamSnapApp : Application() {
         Cloud.init(this)
         ProfileStore.init(this)
         Session.init(this)
+        CrashReporter.install(this)
         LogStore.init(this)
         Notifier.ensureChannels(this)
         QueueManager.init(this)

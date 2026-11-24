@@ -1,17 +1,15 @@
 package com.anas.streamsnap.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,34 +19,27 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Person
-import androidx.activity.compose.BackHandler
-import androidx.compose.material.icons.filled.Settings as SettingsIcon
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.ui.text.style.TextOverflow
-import com.anas.streamsnap.util.Utils
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -60,6 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -70,56 +62,53 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.anas.streamsnap.R
-import com.anas.streamsnap.data.PLAYLIST_CONFIRM_THRESHOLD
+import com.anas.streamsnap.core.cloud.ScreenTracker
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.Tr
 import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.data.tr3
-import com.anas.streamsnap.session.Session
-import com.anas.streamsnap.core.cloud.ScreenTracker
 import com.anas.streamsnap.engine.PendingPlaylist
 import com.anas.streamsnap.engine.QueueManager
+import com.anas.streamsnap.session.Session
+import com.anas.streamsnap.util.Utils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
 
 @Composable
 fun AppRoot(activity: MainActivity) {
     val prefs by Settings.state.collectAsState()
-    var splashDone by rememberSaveable { mutableStateOf(false) }
     val locked by activity.locked.collectAsState()
 
     val user by Session.user.collectAsState()
     val consented by Session.consented.collectAsState()
     val gate by Session.gate.collectAsState()
-    val announcement by Session.announcement.collectAsState()
+    val notices by Session.notices.collectAsState()
+    val permsDone by Session.permissionsDone.collectAsState()
     val cloud = Session.cloudOn
 
-    // 0 splash, 1 onboarding, 2 lock, 4 sign in, 5 consent, 6 blocked, 3 the app
+    // 1 onboarding, 2 lock, 4 sign in, 5 consent, 6 blocked, 7 permissions, 3 the app
+    // There is no splash stage: the first screen is the sign-in screen. Permissions are asked after sign-in and consent.
     val stage = when {
-        !splashDone -> 0
         !prefs.onboarded -> 1
         locked -> 2
         cloud && user == null -> 4
         cloud && !consented -> 5
         cloud && gate != null -> 6
+        !permsDone -> 7
         else -> 3
     }
 
@@ -127,7 +116,7 @@ fun AppRoot(activity: MainActivity) {
     LaunchedEffect(user?.uid, consented) {
         if (cloud && user != null && consented) {
             Session.touch()
-            Session.refreshGate()
+            Session.startLive()
         }
     }
 
@@ -135,50 +124,33 @@ fun AppRoot(activity: MainActivity) {
         LocalLayoutDirection provides (if (Tr.isUrdu) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            announcement?.let { msg ->
+            notices.firstOrNull()?.let { n ->
                 AlertDialog(
-                    onDismissRequest = { Session.dismissAnnouncement() },
-                    title = { Text(tr3("Message from the developer", "Developer ka paigham", "ڈیولپر کا پیغام")) },
-                    text = { Text(msg) },
-                    confirmButton = { TextButton(onClick = { Session.dismissAnnouncement() }) { Text(tr3("OK", "Theek hai", "ٹھیک ہے")) } },
+                    onDismissRequest = { Session.dismissNotice(n.id) },
+                    title = {
+                        Column {
+                            Text(
+                                "Message from StreamSnap Team", style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(n.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    text = { Text(n.message) },
+                    confirmButton = { TextButton(onClick = { Session.dismissNotice(n.id) }) { Text(tr3("OK", "Theek hai", "ٹھیک ہے")) } },
                 )
             }
             Crossfade(targetState = stage, animationSpec = tween(350), label = "stage") { s ->
                 when (s) {
-                    0 -> SplashScreen { splashDone = true }
                     1 -> OnboardingScreen()
                     2 -> LockScreen(activity) { activity.locked.value = false }
                     4 -> AuthScreen(activity)
                     5 -> ConsentScreen()
                     6 -> gate?.let { GateScreen(it) }
+                    7 -> PermissionsScreen { Session.completePermissions() }
                     else -> MainScaffold(activity)
                 }
             }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------- splash
-@Composable
-fun SplashScreen(onDone: () -> Unit) {
-    val scale = remember { Animatable(0.55f) }
-    val alpha = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        launch { alpha.animateTo(1f, tween(550)) }
-        launch { scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
-        delay(1600)
-        onDone()
-    }
-    Box(Modifier.fillMaxSize().background(Color(0xFF0B0F1A)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(
-                painterResource(R.drawable.streamsnap_logo), contentDescription = null,
-                modifier = Modifier.size(124.dp).scale(scale.value).alpha(alpha.value).clip(RoundedCornerShape(30.dp)),
-            )
-            Spacer(Modifier.height(20.dp))
-            Text("StreamSnap", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.alpha(alpha.value))
-            Spacer(Modifier.height(6.dp))
-            Text("Capture any stream, instantly.", color = Color(0xFFB8C4DA), fontSize = 14.sp, modifier = Modifier.alpha(alpha.value))
         }
     }
 }
@@ -242,10 +214,6 @@ fun OnboardingScreen() {
                     pg.body, textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge,
                 )
-                if (i == pages.size - 1) {
-                    Spacer(Modifier.height(24.dp))
-                    PermissionsBlock()
-                }
             }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.Center) {

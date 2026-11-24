@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -42,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,12 +59,18 @@ import androidx.compose.ui.unit.dp
 import com.anas.streamsnap.core.cloud.AuthRepo
 import com.anas.streamsnap.core.cloud.Cloud
 import com.anas.streamsnap.core.cloud.CloudUser
+import com.anas.streamsnap.core.ui.GoogleSignInButton
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.launch
 
 @Composable
 fun AdminRoot(activity: MainActivity) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        val locked by AdminLock.locked.collectAsState()
+        if (locked) {
+            AdminLockScreen(activity)
+            return@Surface
+        }
         if (!Cloud.ready) {
             Notice(
                 icon = { Icon(Icons.Filled.CloudOff, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.error) },
@@ -80,6 +86,7 @@ fun AdminRoot(activity: MainActivity) {
             onDispose { Cloud.auth().removeAuthStateListener(l) }
         }
         val u = user
+        LaunchedEffect(u?.uid) { if (u == null) AdminStore.stopLive() }
         if (u == null) {
             AdminLogin(activity)
             return@Surface
@@ -88,11 +95,18 @@ fun AdminRoot(activity: MainActivity) {
         var state by remember(u.uid) { mutableIntStateOf(0) }
         LaunchedEffect(u.uid) {
             state = if (Cloud.isAdmin(u.uid)) 1 else 2
-            if (state == 1) AdminStore.refresh()
+            if (state == 1) {
+                AdminStore.refresh()
+                AdminStore.startLive()
+            }
         }
         when (state) {
             0 -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            1 -> AdminScaffold()
+            1 -> {
+                // The first time, the admin must create the PIN before the dashboard opens.
+                var pinSet by remember { mutableStateOf(AdminLock.hasPin) }
+                if (!pinSet) AdminPinSetup { pinSet = true } else AdminScaffold()
+            }
             else -> NotAdmin(u)
         }
     }
@@ -164,13 +178,14 @@ private fun AdminLogin(activity: MainActivity) {
             enabled = !busy && email.isNotBlank() && password.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(52.dp),
         ) { if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary) else Text("Sign in") }
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(
+        GoogleSignInButton(
+            text = "Continue with Google",
             onClick = {
                 error = ""; busy = true
                 scope.launch { AuthRepo.signInWithGoogle(activity).onFailure { error = it.message ?: "" }; busy = false }
             },
-            enabled = !busy, modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) { Text("Continue with Google") }
+            enabled = !busy,
+        )
     }
 }
 

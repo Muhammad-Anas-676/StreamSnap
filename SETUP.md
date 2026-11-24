@@ -18,6 +18,7 @@ Project overview > **Add app > Android**:
 Build > Authentication > Get started > Sign-in method:
 - **Email/Password** enable karein.
 - **Google** enable karein (support email chunein).
+- **Anonymous** enable karein (yeh "Continue as Guest" ke liye zaroori hai).
 
 Google enable karne ke baad dono `google-services.json` **dobara download** karein (taake Google sign-in ka client id unmein aa jaye).
 
@@ -51,6 +52,13 @@ Code push karein (ya Actions > Run workflow). Build ke baad **Artifacts > Stream
 
 ## 9. Support email (optional)
 `core/src/main/java/com/anas/streamsnap/core/legal/LegalDocs.kt` mein `SUPPORT_EMAIL = ""` ke andar apna email likh dein, to wo legal documents ke aakhir mein dikhne lagega.
+
+## Naye features ke liye (v2.1)
+- **Guest login**: Authentication > Sign-in method > **Anonymous** on hona chahiye, warna guest button error dega.
+- **Rules dobara publish karein**: `firestore.rules` mein naye paths hain (`users/{uid}/notifications`, `events_errors`). Purani rules rahengi to notifications aur error logs nahi chalenge.
+- **Admin app lock**: pehli baar admin sign in karne ke baad 4-digit PIN banana lazmi hai. Fingerprint More > Security mein on hota hai.
+- **Online status**: user app har 2 minute mein ek write karti hai jab tak wo foreground mein ho (100 users ke liye Spark limit mein hai).
+- **Consent version 2**: privacy documents mein online status, error reports aur admin messages likhe gaye hain, is liye sab users se dobara manzoori li jayegi.
 
 ## Zaroori baatein
 - **Spark limits**: 50,000 reads aur 20,000 writes roz. 100 users ke liye kaafi hai. Admin dashboard har refresh par data parhta hai, is liye zyada baar refresh na karein.

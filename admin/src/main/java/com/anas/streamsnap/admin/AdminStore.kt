@@ -30,6 +30,22 @@ object AdminStore {
     private val _data = MutableStateFlow(AdminData())
     val data: StateFlow<AdminData> = _data.asStateFlow()
 
+    private var liveReg: com.google.firebase.firestore.ListenerRegistration? = null
+
+    /** Keeps the user list (and so the online status) up to date while the admin app is open. */
+    fun startLive() {
+        if (liveReg != null) return
+        liveReg = Cloud.listenUsers(
+            { list -> _data.value = _data.value.copy(users = list) },
+            { msg -> _data.value = _data.value.copy(error = msg) },
+        )
+    }
+
+    fun stopLive() {
+        try { liveReg?.remove() } catch (_: Throwable) { }
+        liveReg = null
+    }
+
     fun setDays(d: Int) {
         if (_data.value.days == d) return
         _data.value = _data.value.copy(days = d)

@@ -33,6 +33,7 @@ data class QueueSnapshot(
 )
 
 object Notifier {
+    private const val CH_ADMIN = "admin_messages"
     const val ID_QUEUE = 1001
     private const val ID_SUMMARY = 1002
     private const val ID_NETWORK = 1003
@@ -78,6 +79,10 @@ object Notifier {
         val clip = NotificationChannel(CH_CLIPBOARD, tr("Clipboard links", "کلپ بورڈ لنکس"), NotificationManager.IMPORTANCE_LOW)
         clip.setSound(null, null); clip.enableVibration(false)
         nm.createNotificationChannel(clip)
+
+        val adm = NotificationChannel(CH_ADMIN, "Messages from StreamSnap Team", NotificationManager.IMPORTANCE_HIGH)
+        adm.description = "Notices sent to you by the StreamSnap team"
+        nm.createNotificationChannel(adm)
 
         sound(chan("done", p), tr("Completed downloads", "مکمل ڈاؤن لوڈز"), tr("A video finished downloading", "ویڈیو ڈاؤن لوڈ ہو گئی"))
         sound(chan("failed", p), tr("Failed downloads", "ناکام ڈاؤن لوڈز"), tr("A download failed (Retry button)", "ڈاؤن لوڈ ناکام (دوبارہ کوشش کا بٹن)"))
@@ -247,6 +252,19 @@ object Notifier {
             .setAutoCancel(true)
             .setContentIntent(openApp(ctx, "settings"))
         post(ctx, ID_STORAGE, b.build())
+    }
+
+    /** A message the admin sent to this user. Always shown (high priority), under the team's name. */
+    fun adminMessage(ctx: Context, id: String, title: String, message: String) {
+        val b = base(ctx, CH_ADMIN)
+            .setContentTitle("Message from StreamSnap Team")
+            .setContentText(title)
+            .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle("Message from StreamSnap Team").bigText(title + "\n\n" + message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setAutoCancel(true)
+            .setContentIntent(openApp(ctx, "queue"))
+        post(ctx, 0x7A000 + (id.hashCode() and 0xFFF), b.build())
     }
 
     fun engineUpdate(ctx: Context, text: String) {

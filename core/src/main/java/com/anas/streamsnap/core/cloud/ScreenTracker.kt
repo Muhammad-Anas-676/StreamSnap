@@ -23,13 +23,22 @@ object ScreenTracker {
     private val pending = ArrayList<ScreenEvent>()
     private var loopStarted = false
 
+    /** Called (on the calling thread) whenever a different screen becomes visible. Used for the live status. */
+    @Volatile
+    var onScreenChanged: ((String) -> Unit)? = null
+
+    val currentScreen: String? get() = synchronized(lock) { screen }
+
     fun enter(name: String) {
+        var changed = false
         synchronized(lock) {
             if (screen == name && running) return
+            changed = screen != name
             closeLocked()
             screen = name
             beginLocked()
         }
+        if (changed) onScreenChanged?.invoke(name)
         startLoop()
     }
 

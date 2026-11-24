@@ -107,6 +107,11 @@ object Utils {
         } catch (_: Exception) { }
     }
 
+    /** Real size of everything inside [dir] (all sub folders), measured on the disk. */
+    fun dirSize(dir: File): Long = try {
+        if (!dir.exists()) 0L else dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    } catch (e: Exception) { 0L }
+
     fun freeBytes(dir: File): Long = try {
         val probe = generateSequence(dir) { it.parentFile }.firstOrNull { it.exists() } ?: dir
         StatFs(probe.absolutePath).availableBytes

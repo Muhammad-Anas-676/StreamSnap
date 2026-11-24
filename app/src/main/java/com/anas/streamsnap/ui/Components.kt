@@ -187,24 +187,30 @@ fun PlatformTag(site: String, url: String, modifier: Modifier = Modifier) {
 }
 
 // ----------------------------------------------------------------------------- storage meter (real numbers)
-/** Used by StreamSnap, free and total space, measured from the real files and the real disk. */
+/**
+ * Real storage numbers, measured again every few seconds and immediately when a download finishes or a file is removed:
+ * the size of the download folder (all files found on the disk), and free / total space from StatFs.
+ */
 @Composable
 fun StorageMeter(modifier: Modifier = Modifier) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val prefs by com.anas.streamsnap.data.Settings.state.collectAsState()
     val items by com.anas.streamsnap.engine.QueueManager.items.collectAsState()
-    var stats by remember { mutableStateOf(Triple(0L, 0L, 0L)) } // used by app, free, total
-    val doneKey = items.count { it.status == Status.DONE }
-    LaunchedEffect(doneKey, prefs.folder) {
-        stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val dir = com.anas.streamsnap.util.Utils.outputDir(ctx, prefs.folder)
-            var used = 0L
-            for (it in items) {
-                if (it.status == Status.DONE && it.filePath.isNotBlank()) {
-                    try { val f = java.io.File(it.filePath); if (f.exists()) used += f.length() } catch (_: Throwable) { }
-                }
+    var stats by remember { mutableStateOf(Triple(0L, 0L, 0L)) } // used by the download folder, free, total
+    // Changes when a download completes, a card is removed or a file size changes: the loop below restarts at once.
+    val changeKey = items.count { it.status == Status.DONE } to items.filter { it.status == Status.DONE }.sumOf { it.fileSize }
+    LaunchedEffect(changeKey, items.size, prefs.folder) {
+        while (true) {
+            stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val dir = com.anas.streamsnap.util.Utils.outputDir(ctx, prefs.folder)
+                val free = com.anas.streamsnap.util.Utils.freeBytes(dir)
+                Triple(
+                    com.anas.streamsnap.util.Utils.dirSize(dir),
+                    if (free == Long.MAX_VALUE) 0L else free,
+                    com.anas.streamsnap.util.Utils.totalBytes(dir),
+                )
             }
-            Triple(used, com.anas.streamsnap.util.Utils.freeBytes(dir), com.anas.streamsnap.util.Utils.totalBytes(dir))
+            kotlinx.coroutines.delay(3000)
         }
     }
     val (used, free, total) = stats

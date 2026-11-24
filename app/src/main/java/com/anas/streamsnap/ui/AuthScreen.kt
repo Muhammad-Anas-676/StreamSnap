@@ -22,12 +22,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
+import com.anas.streamsnap.util.CountryCodes
+import com.anas.streamsnap.core.ui.GoogleSignInButton
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,6 +67,7 @@ fun AuthScreen(activity: MainActivity) {
     var email by rememberSaveable { mutableStateOf("") }
     var phone by rememberSaveable { mutableStateOf("") }
     var country by rememberSaveable { mutableStateOf(Locale.getDefault().displayCountry) }
+    var countryEdited by rememberSaveable { mutableStateOf(false) }
     var password by rememberSaveable { mutableStateOf("") }
     var showPw by rememberSaveable { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -109,6 +112,17 @@ fun AuthScreen(activity: MainActivity) {
         }
     }
 
+    fun guest() {
+        error = ""; info = ""
+        busy = true
+        scope.launch {
+            AuthRepo.signInGuest()
+                .onSuccess { Session.onSignedIn(it, "guest") }
+                .onFailure { error = it.message ?: "" }
+            busy = false
+        }
+    }
+
     fun google() {
         error = ""; info = ""
         busy = true
@@ -140,9 +154,7 @@ fun AuthScreen(activity: MainActivity) {
             },
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(10.dp))
-        LanguageChips()
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(18.dp))
 
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (mode == 1) {
@@ -158,13 +170,18 @@ fun AuthScreen(activity: MainActivity) {
             )
             if (mode == 1) {
                 OutlinedTextField(
-                    value = phone, onValueChange = { phone = it.filter { c -> c.isDigit() || c == '+' || c == ' ' } },
+                    value = phone,
+                    onValueChange = {
+                        phone = it.filter { c -> c.isDigit() || c == '+' || c == ' ' }
+                        // The country follows the international prefix (+92 Pakistan, +1 United States ...) until the user edits it.
+                        if (!countryEdited) CountryCodes.fromPhone(phone)?.let { c -> country = c }
+                    },
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
                     label = { Text(tr3("Phone number", "Phone number", "فون نمبر")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 )
                 OutlinedTextField(
-                    value = country, onValueChange = { country = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    value = country, onValueChange = { country = it; countryEdited = true }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     label = { Text(tr3("Country", "Mulk", "ملک")) },
                 )
             }
@@ -216,8 +233,15 @@ fun AuthScreen(activity: MainActivity) {
                 Text(tr3("or", "ya", "یا"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
             }
-            OutlinedButton(onClick = { google() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text(tr3("Continue with Google", "Google se jaari rakhein", "گوگل سے جاری رکھیں"))
+            GoogleSignInButton(
+                text = tr3("Continue with Google", "Google se jaari rakhein", "گوگل سے جاری رکھیں"),
+                onClick = { google() }, enabled = !busy,
+            )
+            Spacer(Modifier.height(6.dp))
+            TextButton(onClick = { guest() }, enabled = !busy, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                Icon(Icons.Filled.Person, null, Modifier.size(18.dp))
+                Spacer(Modifier.size(8.dp))
+                Text(tr3("Continue as Guest", "Guest ke tor par jaari rakhein", "گیسٹ کے طور پر جاری رکھیں"), fontWeight = FontWeight.SemiBold)
             }
         }
         Spacer(Modifier.height(8.dp))

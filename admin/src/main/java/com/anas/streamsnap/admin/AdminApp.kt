@@ -9,5 +9,6 @@ class AdminApp : Application() {
         super.onCreate()
         ThemeManager.init(this)
         Cloud.init(this)
+        AdminLock.init(this)
     }
 }

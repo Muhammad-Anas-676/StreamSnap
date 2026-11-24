@@ -42,6 +42,7 @@ service cloud.firestore {
         && id.matches(request.auth.uid + '_.*')
         && request.resource.data.url is string
         && request.resource.data.url.size() <= 600
+        && (!('error' in request.resource.data) || request.resource.data.error.size() <= 2000)
         && notBanned();
       allow delete: if false;
     }
@@ -57,7 +58,30 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Maintenance / announcement / minimum version: everyone signed in can read, only admins can write.
+    // Errors reported by the app (crashes). Failed downloads are stored on the link document itself.
+    match /events_errors/{id} {
+      allow read: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.type is string
+        && request.resource.data.detail is string
+        && request.resource.data.detail.size() <= 6500
+        && notBanned();
+      allow update, delete: if false;
+    }
+
+    // Messages the admin sends to one user. Only the admin creates them; the user may only mark them as delivered.
+    match /users/{uid}/notifications/{nid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isAdmin()
+        && request.resource.data.title is string && request.resource.data.title.size() <= 80
+        && request.resource.data.message is string && request.resource.data.message.size() <= 600;
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['delivered', 'deliveredAt']);
+      allow delete: if isAdmin();
+    }
+
+    // Announcement banner (text + colour), maintenance and minimum version: everyone signed in can read, only admins can write.
     match /config/{doc} {
       allow read: if signedIn();
       allow write: if isAdmin();

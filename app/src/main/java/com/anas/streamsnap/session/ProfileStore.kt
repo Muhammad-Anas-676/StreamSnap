@@ -20,6 +20,7 @@ data class Profile(
     val totalDownloads: Long = 0,
     val photoVersion: Long = 0,       // bumps when the local picture changes so the UI reloads it
     val hasLocalPhoto: Boolean = false,
+    val isGuest: Boolean = false,     // true for a guest (anonymous) account until it is upgraded
 )
 
 /**
@@ -52,10 +53,11 @@ object ProfileStore {
         totalDownloads = sp.getLong("totalDownloads", 0),
         photoVersion = sp.getLong("photoVersion", 0),
         hasLocalPhoto = photoFile.exists(),
+        isGuest = sp.getBoolean("guest", false),
     )
 
     /** Called after sign-in: stores what the account tells us, without wiping what the user typed. */
-    fun onSignedIn(uid: String, name: String, email: String, phone: String, country: String, photoUrl: String, createdAt: Long) {
+    fun onSignedIn(uid: String, name: String, email: String, phone: String, country: String, photoUrl: String, createdAt: Long, guest: Boolean = false) {
         val prevUid = sp.getString("uid", "") ?: ""
         if (prevUid.isNotEmpty() && prevUid != uid) clear() // another account: start clean
         val e = sp.edit().putString("uid", uid)
@@ -63,7 +65,7 @@ object ProfileStore {
         if (email.isNotBlank()) e.putString("email", email)
         if (phone.isNotBlank()) e.putString("phone", phone)
         if (country.isNotBlank()) e.putString("country", country)
-        e.putString("photoUrl", photoUrl)
+        e.putString("photoUrl", photoUrl).putBoolean("guest", guest)
         if (createdAt > 0) e.putLong("createdAt", createdAt)
         e.apply()
         _state.value = read()

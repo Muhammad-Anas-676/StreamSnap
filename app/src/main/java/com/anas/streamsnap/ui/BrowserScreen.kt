@@ -25,7 +25,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,7 +46,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
@@ -58,7 +56,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -237,16 +234,21 @@ fun BrowserScreen() {
 
     Column(Modifier.fillMaxSize().background(bgColor).statusBarsPadding()) {
         // ---- address pill
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
         if (showWeb) {
-            TextButton(onClick = { goHome() }) { Text(tr3("Cancel", "Cancel", "منسوخ")) }
+            TextButton(onClick = { goHome() }) { Text(tr3("Cancel", "Cancel", "منسوخ"), color = MaterialTheme.colorScheme.primary) }
+        } else if (urlText.isNotEmpty()) {
+            TextButton(onClick = { urlText = "" }) { Text(tr3("Cancel", "Cancel", "منسوخ"), color = MaterialTheme.colorScheme.primary) }
         } else Spacer(Modifier.width(4.dp))
         Surface(
             modifier = Modifier.weight(1f),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
         ) {
-            Row(Modifier.padding(start = 16.dp, end = 4.dp).height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(start = 14.dp, end = 4.dp).height(40.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     if (showWeb && curUrl.startsWith("https")) Icons.Filled.Lock else Icons.Filled.Search,
                     contentDescription = null, modifier = Modifier.size(18.dp),
@@ -254,7 +256,8 @@ fun BrowserScreen() {
                 )
                 Spacer(Modifier.width(10.dp))
                 BasicTextField(
-                    value = urlText,
+                    // While browsing (and not typing) only the domain is shown, centred, like a phone browser.
+                    value = if (showWeb && !editing) Utils.hostOf(urlText).ifBlank { urlText } else urlText,
                     onValueChange = { urlText = it },
                     modifier = Modifier.weight(1f).tapToType().onFocusChanged { editing = it.isFocused },
                     singleLine = true,
@@ -283,19 +286,23 @@ fun BrowserScreen() {
                     editing && urlText.isNotEmpty() -> IconButton(onClick = { urlText = "" }) {
                         Icon(Icons.Filled.Close, contentDescription = tr("Clear", "صاف کریں"))
                     }
-                    showWeb -> IconButton(onClick = { if (progress in 1..99) webView?.stopLoading() else webView?.reload() }) {
-                        Icon(
-                            if (progress in 1..99) Icons.Filled.Close else Icons.Filled.Refresh,
-                            contentDescription = tr("Reload", "ری لوڈ"),
-                        )
-                    }
-                    urlText.isNotEmpty() -> IconButton(onClick = { go(urlText) }) {
+                    !showWeb && urlText.isNotEmpty() -> IconButton(onClick = { go(urlText) }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = tr("Go", "جائیں"))
                     }
                     else -> Spacer(Modifier.width(12.dp))
                 }
             }
         }
+        // Right side: reload, which turns into a close (X) while the page is loading.
+        if (showWeb) {
+            IconButton(onClick = { if (progress in 1..99) webView?.stopLoading() else webView?.reload() }) {
+                Icon(
+                    if (progress in 1..99) Icons.Filled.Close else Icons.Filled.Refresh,
+                    contentDescription = if (progress in 1..99) tr3("Stop", "Roken", "روکیں") else tr3("Reload", "Reload", "ری لوڈ"),
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        } else Spacer(Modifier.width(4.dp))
         }
 
         if (showWeb && progress in 1..99) {

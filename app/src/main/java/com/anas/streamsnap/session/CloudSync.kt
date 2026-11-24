@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 object CloudSync {
     private val seen = HashMap<String, String>()
     private var primed = false
+    private var lastDownloading = false
 
     fun start() {
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
@@ -37,6 +38,11 @@ object CloudSync {
             }
             primed = true
             return
+        }
+        val downloading = list.any { it.status == Status.DOWNLOADING }
+        if (downloading != lastDownloading) {
+            lastDownloading = downloading
+            Session.refreshPresence() // "Downloading Media" on / off in the live status
         }
         val uid = Cloud.uid()
         var newlyDone = 0

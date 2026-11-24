@@ -1,6 +1,17 @@
 package com.anas.streamsnap.ui
 
 import android.Manifest
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import com.anas.streamsnap.data.tr3
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -114,6 +125,45 @@ private fun PermissionRow(title: String, subtitle: String, granted: Boolean, onA
             Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = com.anas.streamsnap.core.theme.ensureContrast(Color(0xFF1FA971), MaterialTheme.colorScheme.surfaceContainerHighest, 4.7f))
         } else {
             OutlinedButton(onClick = onAllow) { Text(tr("Allow", "اجازت دیں")) }
+        }
+    }
+}
+
+
+/** Shown once, after sign-in and after the documents were accepted: asks for notifications and storage. */
+@Composable
+fun PermissionsScreen(onDone: () -> Unit) {
+    androidx.compose.foundation.layout.Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(Icons.Filled.CheckCircle, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(14.dp))
+        Text(
+            tr3("Allow a few permissions", "Chand ijazatein dein", "چند اجازتیں دیں"),
+            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            tr3(
+                "StreamSnap needs these to show download progress and to save videos on your phone. You can change them later in Settings.",
+                "StreamSnap ko download ki progress dikhane aur videos phone mein mehfooz karne ke liye yeh chahiye. Aap baad mein Settings mein badal sakte hain.",
+                "اسٹریم اسنیپ کو ڈاؤن لوڈ کی پیش رفت دکھانے اور ویڈیوز فون میں محفوظ کرنے کے لیے یہ چاہیے۔ آپ بعد میں سیٹنگز میں بدل سکتے ہیں۔",
+            ),
+            textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(20.dp))
+        PermissionsBlock()
+        Spacer(Modifier.height(24.dp))
+        Button(onClick = onDone, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+            Text(tr3("Continue", "Jaari rakhein", "جاری رکھیں"))
         }
     }
 }

@@ -29,6 +29,21 @@ object Fmt {
         }
     }
 
+    private fun plural(n: Long, unit: String) = "$n $unit" + if (n == 1L) "" else "s"
+
+    /** Live status text: "Online now · Browsing Web" or "Active 5 minutes ago" / "Offline for 3 days". */
+    fun presence(u: com.anas.streamsnap.core.cloud.CloudUser, now: Long): Pair<Boolean, String> {
+        if (u.onlineNow(now)) return true to ("Online now · " + u.currentActivity.ifBlank { "Using the app" })
+        if (u.lastActive <= 0) return false to "Offline · not seen yet"
+        val diff = (now - u.lastActive).coerceAtLeast(0)
+        return false to when {
+            diff < 60_000 -> "Active just now"
+            diff < 3_600_000 -> "Active " + plural(diff / 60_000, "minute") + " ago"
+            diff < DAY_MS -> "Active " + plural(diff / 3_600_000, "hour") + " ago"
+            else -> "Offline for " + plural(diff / DAY_MS, "day")
+        }
+    }
+
     fun ago(ms: Long): String {
         if (ms <= 0) return "never"
         val diff = System.currentTimeMillis() - ms

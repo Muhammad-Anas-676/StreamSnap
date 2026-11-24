@@ -34,6 +34,9 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings as SettingsIcon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import com.anas.streamsnap.core.ui.GoogleSignInButton
+import com.anas.streamsnap.core.cloud.AuthRepo
+import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -80,6 +83,7 @@ fun ProfileScreen(onOpenSettings: () -> Unit) {
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    var upgrading by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) ProfileStore.setPhoto(uri)
@@ -150,7 +154,44 @@ fun ProfileScreen(onOpenSettings: () -> Unit) {
                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            Text(p.email, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (p.isGuest) {
+                Text(
+                    tr3("Guest account", "Guest account", "گیسٹ اکاؤنٹ"),
+                    style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            } else {
+                Text(p.email, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+
+            if (p.isGuest) {
+                Card(
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            tr3("You are using a Guest account", "Aap Guest account istemal kar rahe hain", "آپ گیسٹ اکاؤنٹ استعمال کر رہے ہیں"),
+                            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            tr3(
+                                "Upgrade with an email or Google account to keep your profile, and to sign in again if you change phones.",
+                                "Apna profile mehfooz rakhne aur phone badalne par dobara sign in karne ke liye email ya Google account se upgrade karein.",
+                                "اپنا پروفائل محفوظ رکھنے اور فون بدلنے پر دوبارہ سائن اِن کرنے کے لیے ای میل یا گوگل اکاؤنٹ سے اپگریڈ کریں۔",
+                            ),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(onClick = { upgrading = true }, modifier = Modifier.fillMaxWidth().height(46.dp)) {
+                            Text(tr3("Upgrade account", "Account upgrade karein", "اکاؤنٹ اپگریڈ کریں"))
+                        }
+                    }
+                }
+            }
 
             if (!Session.cloudOn) {
                 Row(
@@ -223,13 +264,19 @@ fun ProfileScreen(onOpenSettings: () -> Unit) {
         }
     }
 
+    if (upgrading) UpgradeDialog(onClose = { upgrading = false })
+
     if (confirmLogout) {
         AlertDialog(
             onDismissRequest = { confirmLogout = false },
             title = { Text(tr3("Log out?", "Log out karein?", "لاگ آؤٹ کریں؟")) },
             text = {
                 Text(
-                    tr3(
+                    if (p.isGuest) tr3(
+                        "A guest account cannot be recovered after you log out. Upgrade it first if you want to keep it.",
+                        "Log out ke baad guest account wapas nahi milta. Rakhna ho to pehle upgrade karein.",
+                        "لاگ آؤٹ کے بعد گیسٹ اکاؤنٹ واپس نہیں ملتا۔ رکھنا ہو تو پہلے اپگریڈ کریں۔",
+                    ) else tr3(
                         "Your downloaded files stay on the phone. Your profile picture on this phone is removed.",
                         "Aapki downloaded files phone mein rahengi. Is phone se aapki profile picture hat jayegi.",
                         "آپ کی ڈاؤن لوڈ فائلیں فون میں رہیں گی۔ اس فون سے آپ کی پروفائل تصویر ہٹ جائے گی۔",
@@ -278,5 +325,64 @@ private fun EditProfileDialog(name: String, phone: String, country: String, onDo
             TextButton(enabled = n.trim().length >= 2, onClick = { onDone(n, ph, c) }) { Text(tr3("Save", "Mehfooz karein", "محفوظ کریں")) }
         },
         dismissButton = { TextButton(onClick = { onDone(null, null, null) }) { Text(tr3("Cancel", "Raddd karein", "منسوخ")) } },
+    )
+}
+
+
+/** Upgrade a guest account: with an email and password, or with Google. The user id stays the same. */
+@Composable
+private fun UpgradeDialog(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+
+    fun done(u: com.google.firebase.auth.FirebaseUser, provider: String) {
+        Session.onSignedIn(u, provider, name.trim())
+        onClose()
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onClose() },
+        title = { Text(tr3("Upgrade account", "Account upgrade karein", "اکاؤنٹ اپگریڈ کریں")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text(tr3("Name", "Naam", "نام")) })
+                OutlinedTextField(value = email, onValueChange = { email = it }, singleLine = true, label = { Text(tr3("Email", "Email", "ای میل")) })
+                OutlinedTextField(
+                    value = password, onValueChange = { password = it }, singleLine = true,
+                    label = { Text(tr3("Password", "Password", "پاس ورڈ")) },
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                )
+                GoogleSignInButton(
+                    text = tr3("Link with Google", "Google se jorein", "گوگل سے جوڑیں"), enabled = !busy,
+                    onClick = {
+                        val act = ctx.findMainActivity() ?: return@GoogleSignInButton
+                        error = ""; busy = true
+                        scope.launch {
+                            AuthRepo.linkGoogle(act).onSuccess { done(it, "google") }.onFailure { error = it.message ?: "" }
+                            busy = false
+                        }
+                    },
+                )
+                if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && name.trim().length >= 2 && email.contains("@") && password.length >= 6,
+                onClick = {
+                    error = ""; busy = true
+                    scope.launch {
+                        AuthRepo.linkEmail(email, password, name).onSuccess { done(it, "email") }.onFailure { error = it.message ?: "" }
+                        busy = false
+                    }
+                },
+            ) { Text(tr3("Upgrade", "Upgrade", "اپگریڈ")) }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onClose) { Text(tr3("Cancel", "Raddd karein", "منسوخ")) } },
     )
 }

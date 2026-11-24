@@ -19,6 +19,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.anas.streamsnap.core.cloud.ScreenTracker
 import com.anas.streamsnap.core.theme.AppTheme
 import com.anas.streamsnap.session.ProfileStore
+import com.anas.streamsnap.session.Session
 import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.engine.AddResult
@@ -91,6 +92,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         ScreenTracker.resume()
+        Session.setForeground(true)
         Notifier.clearClipboard(this)
         if (Settings.value.appLock && backgroundedAt > 0 &&
             SystemClock.elapsedRealtime() - backgroundedAt > 20_000
@@ -100,6 +102,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         // The screen timer stops while the app is in the background; the visit is saved now.
         ScreenTracker.pause()
+        Session.setForeground(false)
         ProfileStore.markLeft()
         backgroundedAt = SystemClock.elapsedRealtime()
         QueueManager.saveNow()
@@ -109,6 +112,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        Session.setForeground(false)
         if (isFinishing) QueueManager.onAppClosed()
         super.onDestroy()
     }
