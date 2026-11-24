@@ -22,6 +22,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Why the app is blocked right now (shown instead of the main screens). */
 sealed class Gate {
@@ -114,29 +117,79 @@ object Session {
         _permissionsDone.value = true
     }
 
+    // ------------------------------------------------------------------------------ sign-in and profile merge
+
+    private val mergeMutex = Mutex()
+    @Volatile private var mergedUid: String? = null
+
+    /** True once the cloud profile of [uid] was read and merged into this phone (so counters may be pushed safely). */
+    fun profileMerged(uid: String?): Boolean = uid != null && mergedUid == uid
+
+    /**
+     * Reads the existing `users/{uid}` document and merges it into the local profile BEFORE anything is pushed,
+     * so a fresh install never overwrites the name, phone, country or download counter that the cloud already has.
+     * If the cloud cannot be read (offline) nothing is marked as merged and no profile field or counter is pushed.
+     */
+    private suspend fun mergeFromCloud(uid: String, keepName: Boolean = false, keepPhone: Boolean = false, keepCountry: Boolean = false) {
+        mergeMutex.withLock {
+            if (mergedUid == uid) return
+            val result = withTimeoutOrNull(8_000) { Cloud.fetchUserResult(uid) } ?: return
+            val remote = result.getOrElse { return }
+            if (remote != null) {
+                ProfileStore.mergeFromCloud(remote, keepName, keepPhone, keepCountry)
+                // The documents were already accepted on another phone: do not ask again for the same version.
+                if (remote.consentVersion > sp.getInt("consent_$uid", 0)) {
+                    sp.edit().putInt("consent_$uid", remote.consentVersion).apply()
+                    if (_user.value?.uid == uid) _consented.value = hasConsent(uid)
+                }
+            }
+            mergedUid = uid
+        }
+    }
+
+    /** Sends the profile to the cloud. Profile fields and the counter are only sent after a successful merge (or when typed just now). */
+    private fun pushProfile(uid: String, provider: String, exName: String = "", exPhone: String = "", exCountry: String = "") {
+        val merged = mergedUid == uid
+        val p = ProfileStore.state.value
+        Cloud.upsertUser(
+            uid = uid,
+            name = if (merged) p.name else exName,
+            email = p.email,
+            provider = provider,
+            phone = if (merged) p.phone else exPhone,
+            country = if (merged) p.country else exCountry,
+            createdAt = p.createdAt,
+            versionName = versionName,
+            totalDownloads = if (merged) ProfileStore.totalDownloads() else -1,
+        )
+    }
+
     /** Called right after a successful sign-in, sign-up, guest start or account upgrade. */
     fun onSignedIn(u: FirebaseUser, provider: String, name: String = "", phone: String = "", country: String = "") {
         val guest = u.isAnonymous
+        val exName = if (guest) "" else name.trim()
         val finalName = if (guest) "Guest User" else name.ifBlank { u.displayName ?: "" }
         val email = u.email ?: ""
         val created = u.metadata?.creationTimestamp ?: 0L
+        // The phone shows the profile at once; the cloud copy is merged in right after.
         ProfileStore.onSignedIn(u.uid, finalName, email, phone, country, u.photoUrl?.toString() ?: "", created, guest)
-        Cloud.upsertUser(
-            uid = u.uid, name = finalName, email = email, provider = if (guest) "guest" else provider,
-            phone = phone, country = country, createdAt = created, versionName = versionName,
-        )
         _user.value = Cloud.auth().currentUser
+        val prov = if (guest) "guest" else provider
+        scope.launch {
+            mergeFromCloud(u.uid, keepName = exName.isNotBlank(), keepPhone = phone.isNotBlank(), keepCountry = country.isNotBlank())
+            pushProfile(u.uid, prov, exName, phone.trim(), country.trim())
+            CloudSync.flush()
+        }
     }
 
-    /** Refreshes "last active", app version and device info once per app start. */
+    /** Refreshes "last active", app version and device info once per app start (after the cloud profile was merged). */
     fun touch() {
         val u = _user.value ?: return
-        val p = ProfileStore.state.value
-        Cloud.upsertUser(
-            uid = u.uid, name = p.name, email = p.email, provider = AuthRepo.provider,
-            phone = p.phone, country = p.country, createdAt = p.createdAt, versionName = versionName,
-            totalDownloads = ProfileStore.totalDownloads(),
-        )
+        scope.launch {
+            mergeFromCloud(u.uid)
+            pushProfile(u.uid, AuthRepo.provider)
+            CloudSync.flush()
+        }
     }
 
     // ------------------------------------------------------------------------------ live listeners
@@ -255,6 +308,8 @@ object Session {
         banned = false
         ScreenTracker.pause()
         ScreenTracker.reset()
+        mergedUid = null
+        Cloud.resetUserGate()
         AuthRepo.signOut(app)
         ProfileStore.clear()
     }

@@ -70,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.anas.streamsnap.core.cloud.AppConfig
@@ -235,6 +236,17 @@ fun UsersScreen(onOpen: (CloudUser) -> Unit) {
         )
         ErrorLine(d.error)
         LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (list.isEmpty()) item {
+                Text(
+                    when {
+                        d.loading && d.users.isEmpty() -> "Loading users..."
+                        q.isNotBlank() -> "No user matches your search"
+                        else -> "No users yet. Accounts appear here after someone signs in to StreamSnap."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                )
+            }
             items(list, key = { it.uid }) { u ->
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { onOpen(u) },

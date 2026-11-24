@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,15 +43,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -86,7 +88,7 @@ fun AdminRoot(activity: MainActivity) {
             onDispose { Cloud.auth().removeAuthStateListener(l) }
         }
         val u = user
-        LaunchedEffect(u?.uid) { if (u == null) AdminStore.stopLive() }
+        LaunchedEffect(u?.uid) { if (u == null) AdminStore.clear() } // sign-out: no user data stays in memory
         if (u == null) {
             AdminLogin(activity)
             return@Surface
@@ -157,7 +159,7 @@ private fun AdminLogin(activity: MainActivity) {
         Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Filled.AdminPanelSettings, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+        Image(painterResource(R.drawable.admin_logo), contentDescription = "StreamSnap Admin", modifier = Modifier.size(88.dp))
         Spacer(Modifier.height(10.dp))
         Text("StreamSnap Admin", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
         Text("Sign in with the admin account", color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class AdminData(
@@ -36,9 +37,19 @@ object AdminStore {
     fun startLive() {
         if (liveReg != null) return
         liveReg = Cloud.listenUsers(
-            { list -> _data.value = _data.value.copy(users = list) },
-            { msg -> _data.value = _data.value.copy(error = msg) },
+            { list -> _data.update { it.copy(users = list, error = "") } },
+            { msg ->
+                // Firestore ends a listener after an error: forget it so the next refresh can start a new one.
+                stopLive()
+                _data.update { it.copy(error = msg) }
+            },
         )
+    }
+
+    /** Sign-out: stop listening and drop every piece of user data held in memory. */
+    fun clear() {
+        stopLive()
+        _data.value = AdminData()
     }
 
     fun stopLive() {
@@ -48,25 +59,24 @@ object AdminStore {
 
     fun setDays(d: Int) {
         if (_data.value.days == d) return
-        _data.value = _data.value.copy(days = d)
+        _data.update { it.copy(days = d) }
         refresh()
     }
 
     fun refresh() {
         if (_data.value.loading) return
-        _data.value = _data.value.copy(loading = true, error = "")
+        _data.update { it.copy(loading = true, error = "") }
         scope.launch {
             try {
                 val since = System.currentTimeMillis() - _data.value.days * 86_400_000L
                 val u = async { Cloud.fetchUsers() }
                 val l = async { Cloud.fetchLinks(since) }
                 val s = async { Cloud.fetchScreens(since) }
-                _data.value = _data.value.copy(
-                    users = u.await(), links = l.await(), screens = s.await(),
-                    loading = false, loadedAt = System.currentTimeMillis(),
-                )
+                val users = u.await(); val links = l.await(); val screens = s.await()
+                _data.update { it.copy(users = users, links = links, screens = screens, loading = false, loadedAt = System.currentTimeMillis()) }
+                startLive() // restarts the live list if an earlier error had stopped it (no-op when it is running)
             } catch (e: Throwable) {
-                _data.value = _data.value.copy(loading = false, error = e.message ?: "Could not load the data")
+                _data.update { it.copy(loading = false, error = Cloud.describeError(e)) }
             }
         }
     }
@@ -75,11 +85,11 @@ object AdminStore {
         scope.launch {
             try {
                 Cloud.setUserStatus(uid, if (banned) "banned" else "active")
-                _data.value = _data.value.copy(
-                    users = _data.value.users.map { if (it.uid == uid) it.copy(status = if (banned) "banned" else "active") else it },
-                )
+                _data.update { d ->
+                    d.copy(users = d.users.map { if (it.uid == uid) it.copy(status = if (banned) "banned" else "active") else it })
+                }
             } catch (e: Throwable) {
-                _data.value = _data.value.copy(error = e.message ?: "Could not change the account")
+                _data.update { it.copy(error = Cloud.describeError(e)) }
             }
             done()
         }

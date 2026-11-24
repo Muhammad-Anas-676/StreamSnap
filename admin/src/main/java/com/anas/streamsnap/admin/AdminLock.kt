@@ -11,6 +11,7 @@ import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
@@ -61,7 +62,9 @@ object AdminLock {
 
     fun check(pin: String): Boolean {
         if (lockRemainingSec() > 0) return false
-        val ok = hash(pin, sp.getString("salt", "") ?: "") == sp.getString("hash", "")
+        val stored = sp.getString("hash", "") ?: ""
+        val ok = stored.isNotEmpty() &&
+            MessageDigest.isEqual(hash(pin, sp.getString("salt", "") ?: "").toByteArray(), stored.toByteArray()) // constant-time compare
         if (ok) {
             sp.edit().putInt("fails", 0).putLong("lockedUntil", 0).apply()
             _locked.value = false

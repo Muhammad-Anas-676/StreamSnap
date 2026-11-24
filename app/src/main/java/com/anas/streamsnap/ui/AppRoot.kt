@@ -3,7 +3,6 @@ package com.anas.streamsnap.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -14,31 +13,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -52,31 +40,27 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.anas.streamsnap.core.cloud.ScreenTracker
-import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.Tr
 import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.data.tr3
@@ -85,12 +69,10 @@ import com.anas.streamsnap.engine.QueueManager
 import com.anas.streamsnap.session.Session
 import com.anas.streamsnap.util.Utils
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 
 @Composable
 fun AppRoot(activity: MainActivity) {
-    val prefs by Settings.state.collectAsState()
     val locked by activity.locked.collectAsState()
 
     val user by Session.user.collectAsState()
@@ -100,10 +82,10 @@ fun AppRoot(activity: MainActivity) {
     val permsDone by Session.permissionsDone.collectAsState()
     val cloud = Session.cloudOn
 
-    // 1 onboarding, 2 lock, 4 sign in, 5 consent, 6 blocked, 7 permissions, 3 the app
-    // There is no splash stage: the first screen is the sign-in screen. Permissions are asked after sign-in and consent.
+    // 2 lock, 4 sign in, 5 consent, 6 blocked, 7 permissions, 3 the app
+    // There is no onboarding or splash stage: the first screen is the lock screen (if on) or sign-in.
+    // Permissions are asked once, after sign-in and consent.
     val stage = when {
-        !prefs.onboarded -> 1
         locked -> 2
         cloud && user == null -> 4
         cloud && !consented -> 5
@@ -111,6 +93,10 @@ fun AppRoot(activity: MainActivity) {
         !permsDone -> 7
         else -> 3
     }
+
+    // The clipboard may be scanned only on the real app screens (past lock, sign-in, consent, gate and permissions).
+    LaunchedEffect(stage) { activity.setMainReady(stage == 3) }
+    DisposableEffect(Unit) { onDispose { activity.setMainReady(false) } }
 
     // Once signed in and consented: tell the cloud we are here, check ban / maintenance / update, flush on leaving.
     LaunchedEffect(user?.uid, consented) {
@@ -142,7 +128,6 @@ fun AppRoot(activity: MainActivity) {
             }
             Crossfade(targetState = stage, animationSpec = tween(350), label = "stage") { s ->
                 when (s) {
-                    1 -> OnboardingScreen()
                     2 -> LockScreen(activity) { activity.locked.value = false }
                     4 -> AuthScreen(activity)
                     5 -> ConsentScreen()
@@ -152,87 +137,6 @@ fun AppRoot(activity: MainActivity) {
                 }
             }
         }
-    }
-}
-
-// ---------------------------------------------------------------------------------- onboarding
-private data class OnbPage(val icon: ImageVector, val title: String, val body: String)
-
-@Composable
-fun OnboardingScreen() {
-    val pages = listOf(
-        OnbPage(
-            Icons.Filled.ContentPaste,
-            tr("Paste. That's it.", "بس پیسٹ کریں"),
-            tr(
-                "Paste one link or many. StreamSnap reads each link, shows a preview and downloads them one by one.",
-                "ایک یا کئی لنک پیسٹ کریں۔ StreamSnap ہر لنک کا پری ویو دکھاتا ہے اور ایک ایک کر کے ڈاؤن لوڈ کرتا ہے۔",
-            ),
-        ),
-        OnbPage(
-            Icons.Filled.Tune,
-            tr("Your rules", "آپ کے اصول"),
-            tr(
-                "Automatic or manual start, one quality for all videos or pick for each, Wi-Fi only, schedule, speed limit.",
-                "خودکار یا دستی ڈاؤن لوڈ، سب کے لیے ایک کوالٹی یا ہر ویڈیو کی الگ، صرف وائی فائی، شیڈول، اسپیڈ لمٹ۔",
-            ),
-        ),
-        OnbPage(
-            Icons.Filled.PlayCircle,
-            tr("Play and stay private", "دیکھیں اور محفوظ رہیں"),
-            tr(
-                "Built-in player with gestures, app lock and a hidden folder for your private videos.",
-                "جیسچرز والا بلٹ ان پلیئر، ایپ لاک اور آپ کی نجی ویڈیوز کے لیے چھپا ہوا فولڈر۔",
-            ),
-        ),
-    )
-    val pager = rememberPagerState(pageCount = { pages.size })
-    val scope = rememberCoroutineScope()
-    val last = pager.currentPage == pages.size - 1
-
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { Settings.update { it.copy(onboarded = true) } }) { Text(tr("Skip", "چھوڑیں")) }
-        }
-        HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { i ->
-            val pg = pages[i]
-            Column(
-                Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Box(
-                    Modifier.size(132.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(pg.icon, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(Modifier.height(28.dp))
-                Text(pg.title, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    pg.body, textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge,
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
-            repeat(pages.size) { i ->
-                val w by animateDpAsState(if (pager.currentPage == i) 26.dp else 8.dp, tween(250), label = "dot")
-                Box(
-                    Modifier.padding(horizontal = 4.dp).height(8.dp).size(width = w, height = 8.dp).clip(CircleShape).background(
-                        if (pager.currentPage == i) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                    )
-                )
-            }
-        }
-        Button(
-            onClick = {
-                if (last) Settings.update { it.copy(onboarded = true) }
-                else scope.launch { pager.animateScrollToPage(pager.currentPage + 1) }
-            },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) { Text(if (last) tr("Get started", "شروع کریں") else tr("Next", "آگے")) }
     }
 }
 

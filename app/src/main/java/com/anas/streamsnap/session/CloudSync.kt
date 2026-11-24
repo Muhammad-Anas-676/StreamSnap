@@ -16,7 +16,10 @@ import kotlinx.coroutines.launch
  * Also keeps the "Total downloads" counter of the profile.
  */
 object CloudSync {
+    /** What was already sent to the cloud, per item. Only filled when an item was really handed to the cloud. */
     private val seen = HashMap<String, String>()
+    /** Items already counted in "Total downloads" (separate from [seen], which waits for sign-in and consent). */
+    private val counted = HashSet<String>()
     private var primed = false
     private var lastDownloading = false
 
@@ -28,11 +31,19 @@ object CloudSync {
         }
     }
 
+    /** Re-checks the current list, e.g. right after sign-in / consent, so items added before that are sent now. */
+    fun flush() {
+        try { handle(QueueManager.items.value) } catch (_: Throwable) { }
+    }
+
     @Synchronized
     private fun handle(list: List<com.anas.streamsnap.data.DownloadItem>) {
         if (!primed) {
             // The first list is what was saved on the phone earlier: remember it, do not send it again.
-            list.forEach { seen[it.id] = keyOf(it.status) }
+            list.forEach {
+                seen[it.id] = keyOf(it.status)
+                if (it.status == Status.DONE) counted.add(it.id)
+            }
             if (ProfileStore.totalDownloads() == 0L) {
                 ProfileStore.setTotalDownloads(list.count { it.status == Status.DONE }.toLong())
             }
@@ -45,14 +56,16 @@ object CloudSync {
             Session.refreshPresence() // "Downloading Media" on / off in the live status
         }
         val uid = Cloud.uid()
+        // Nothing is sent (and nothing is marked as sent) while signed out or before the documents were accepted;
+        // the items are picked up by the next call after sign-in / consent.
+        val canSend = uid != null && Session.consented.value
         var newlyDone = 0
         for (it in list) {
             val key = keyOf(it.status)
-            val prev = seen[it.id]
-            if (prev == key) continue
+            if (key == "done" && counted.add(it.id)) newlyDone++
+            if (!canSend || uid == null) continue
+            if (seen[it.id] == key) continue
             seen[it.id] = key
-            if (key == "done") newlyDone++
-            if (uid == null || !Session.consented.value) continue
             Cloud.logLink(
                 LinkEvent(
                     id = uid + "_" + it.id, uid = uid, url = it.url,
@@ -66,7 +79,8 @@ object CloudSync {
         if (newlyDone > 0) {
             val total = ProfileStore.totalDownloads() + newlyDone
             ProfileStore.setTotalDownloads(total)
-            if (uid != null) Cloud.updateUserFields(uid, mapOf("totalDownloads" to total))
+            // Pushed only after the cloud profile was merged: a fresh install must never overwrite the cloud counter with a small number.
+            if (uid != null && Session.profileMerged(uid)) Cloud.updateUserFields(uid, mapOf("totalDownloads" to total))
         }
     }
 

@@ -432,7 +432,7 @@ private fun HomeHeader() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Image(
                 painterResource(R.drawable.streamsnap_logo), null,
-                Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)),
+                Modifier.size(38.dp),
             )
             Text(
                 "StreamSnap", modifier = Modifier.weight(1f),
@@ -443,7 +443,8 @@ private fun HomeHeader() {
             Surface(
                 onClick = {
                     Settings.update { it.copy(autoStart = !it.autoStart) }
-                    QueueManager.recheck()
+                    // Same as Settings: items that were only waiting for a tap start by themselves in Automatic mode.
+                    QueueManager.onModeChanged()
                 },
                 shape = RoundedCornerShape(50),
                 color = MaterialTheme.colorScheme.primaryContainer,
@@ -494,6 +495,8 @@ private fun HomeHeader() {
                             text = { Text(tr3("All videos: ", "Tamam videos: ", "تمام ویڈیوز: ") + label) },
                             onClick = {
                                 Settings.update { it.copy(qualityMode = "fixed", defaultQuality = k, cvOn = false) }
+                                QueueManager.applyDefaultQuality(k)
+                                QueueManager.onModeChanged()
                                 qMenu = false
                             },
                         )
@@ -715,7 +718,7 @@ private fun DownloadedEmpty() {
     ) {
         Image(
             painterResource(R.drawable.streamsnap_logo), null,
-            Modifier.size(84.dp).clip(RoundedCornerShape(22.dp)),
+            Modifier.size(84.dp),
         )
         Spacer(Modifier.height(16.dp))
         Text(tr("No finished downloads yet", "ابھی کوئی مکمل ڈاؤن لوڈ نہیں"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -735,7 +738,7 @@ private fun EmptyState(auto: Boolean) {
     ) {
         Image(
             painterResource(R.drawable.streamsnap_logo), null,
-            Modifier.size(84.dp).clip(RoundedCornerShape(22.dp)),
+            Modifier.size(84.dp),
         )
         Spacer(Modifier.height(16.dp))
         Text(tr("Nothing in the queue", "قطار خالی ہے"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

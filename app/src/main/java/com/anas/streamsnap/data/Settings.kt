@@ -70,12 +70,13 @@ data class Prefs(
     val nClipboard: Boolean = true,
     // Engine / misc
     val engineChannel: String = "stable", // stable | nightly
-    val onboarded: Boolean = false,
     val lastEngineCheck: Long = 0L,
 )
 
 object Settings {
     private const val FILE = "streamsnap_settings"
+    /** Keys of settings that no longer exist. Cleaned from storage and ignored in backups (old backups may still contain them). */
+    private val RETIRED_KEYS = setOf("onboarded")
     private lateinit var sp: SharedPreferences
     private val _state = MutableStateFlow(Prefs())
     val state: StateFlow<Prefs> = _state.asStateFlow()
@@ -83,6 +84,9 @@ object Settings {
 
     fun init(ctx: Context) {
         sp = ctx.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        if (RETIRED_KEYS.any { sp.contains(it) }) {
+            sp.edit().apply { RETIRED_KEYS.forEach { remove(it) } }.apply()
+        }
         _state.value = load()
         Tr.lang = _state.value.language
     }
@@ -145,7 +149,6 @@ object Settings {
             nEngine = sp.getBoolean("nEngine", d.nEngine),
             nClipboard = sp.getBoolean("nClipboard", d.nClipboard),
             engineChannel = sp.getString("engineChannel", d.engineChannel) ?: d.engineChannel,
-            onboarded = sp.getBoolean("onboarded", d.onboarded),
             lastEngineCheck = sp.getLong("lastEngineCheck", d.lastEngineCheck),
         )
     }
@@ -207,7 +210,6 @@ object Settings {
             .putBoolean("nEngine", p.nEngine)
             .putBoolean("nClipboard", p.nClipboard)
             .putString("engineChannel", p.engineChannel)
-            .putBoolean("onboarded", p.onboarded)
             .putLong("lastEngineCheck", p.lastEngineCheck)
             .apply()
     }
@@ -280,6 +282,7 @@ object Settings {
         val m = LinkedHashMap<String, Any?>()
         for ((k, v) in sp.all) {
             if (k == "pinHash" || k == "pinSalt" || k == "pinFails" || k == "pinLockedUntil") continue // never export lock secrets
+            if (k in RETIRED_KEYS) continue
             m[k] = v
         }
         return m
@@ -289,6 +292,7 @@ object Settings {
         val e = sp.edit()
         for ((k, v) in map) {
             if (k == "pinHash" || k == "pinSalt" || k == "appLock" || k == "pinFails" || k == "pinLockedUntil") continue
+            if (k in RETIRED_KEYS) continue // an old backup may still carry "onboarded"
             when (v) {
                 is Boolean -> e.putBoolean(k, v)
                 is Int -> e.putInt(k, v)

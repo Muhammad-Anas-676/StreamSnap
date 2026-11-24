@@ -1,4 +1,4 @@
-# StreamSnap 2.0: Firebase setup (sirf phone se)
+# StreamSnap 2.1.0: Firebase setup (sirf phone se)
 
 Build ke liye Firebase ke 2 `google-services.json` files chahiye (user app + admin app). Neeche ke steps ek baar karne hain.
 
@@ -59,6 +59,14 @@ Code push karein (ya Actions > Run workflow). Build ke baad **Artifacts > Stream
 - **Admin app lock**: pehli baar admin sign in karne ke baad 4-digit PIN banana lazmi hai. Fingerprint More > Security mein on hota hai.
 - **Online status**: user app har 2 minute mein ek write karti hai jab tak wo foreground mein ho (100 users ke liye Spark limit mein hai).
 - **Consent version 2**: privacy documents mein online status, error reports aur admin messages likhe gaye hain, is liye sab users se dobara manzoori li jayegi.
+
+## 2.1.0 update ke liye (zaroori)
+1. **Rules dobara publish karein**: Firebase console > Firestore Database > Rules mein naye `firestore.rules` ka poora text paste karke **Publish**. Ab har field ki type aur size check hoti hai, aur `totalDownloads` kam nahi ho sakta.
+2. **Anonymous sign-in** on rahe (Authentication > Sign-in method), warna guest button kaam nahi karega.
+3. **Index**: koi naya Firestore index nahi chahiye. Agar admin app kabhi "needs an index" dikhaye to error mein diya hua link kholkar Create dabayein.
+4. **GitHub Secrets**: pehle jaisay `GOOGLE_SERVICES_APP_B64`, `GOOGLE_SERVICES_ADMIN_B64` (aur apni signing ke liye `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`). Naya secret nahi chahiye. Secrets build log mein print nahi hote.
+5. **Consent**: `LegalDocs.VERSION` nahi badla, is liye purane users se dobara manzoori nahi li jayegi. Jo user pehle kisi aur phone par manzoor kar chuka hai, usay naye phone par sign-in ke baad dobara nahi poocha jata.
+6. **Purani app versions**: agar kisi user ke paas purani app (2.0 ya 2.1 se pehle) hai aur wo download counter chhota likhne ki koshish kare to naye rules us write ko refuse kar dengy (yeh theek hai, user update kar le).
 
 ## Zaroori baatein
 - **Spark limits**: 50,000 reads aur 20,000 writes roz. 100 users ke liye kaafi hai. Admin dashboard har refresh par data parhta hai, is liye zyada baar refresh na karein.

@@ -11,8 +11,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -36,6 +36,9 @@ class MainActivity : AppCompatActivity() {
     val navRequest = MutableStateFlow<String?>(null)
     /** Text of a link found in the clipboard that the user has not acted on yet. */
     val clipLink = MutableStateFlow<String?>(null)
+
+    /** True only while the real app screens are showing (past lock, sign-in, consent, gate and permissions). */
+    @Volatile private var mainReady = false
 
     private var backgroundedAt = 0L
     private var lastClip = ""
@@ -120,7 +123,14 @@ class MainActivity : AppCompatActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         // Android only lets the focused app read the clipboard.
-        if (hasFocus && Settings.value.onboarded) checkClipboard()
+        if (hasFocus && mainReady) checkClipboard()
+    }
+
+    /** Called by AppRoot when the visible stage changes. Entering the main screens scans the clipboard once the window has focus. */
+    fun setMainReady(ready: Boolean) {
+        val was = mainReady
+        mainReady = ready
+        if (ready && !was && hasWindowFocus()) checkClipboard()
     }
 
     private fun checkClipboard() {
