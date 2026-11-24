@@ -9,13 +9,16 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
@@ -125,7 +128,7 @@ fun isDarkMode(mode: ThemeMode, systemDark: Boolean): Boolean = when (mode) {
 }
 
 @Composable
-fun AppTheme(content: @Composable () -> Unit) {
+fun AppTheme(applyTextScale: Boolean = false, content: @Composable () -> Unit) {
     val st by ThemeManager.state.collectAsState()
     val systemDark = isSystemInDarkTheme()
     val dark = isDarkMode(st.mode, systemDark)
@@ -153,6 +156,17 @@ fun AppTheme(content: @Composable () -> Unit) {
             large = RoundedCornerShape(22.dp),
             extraLarge = RoundedCornerShape(28.dp),
         ),
-        content = content,
+        content = {
+            if (applyTextScale) {
+                // Small / Medium / Large: scales every sp size at once, no restart needed.
+                val base = LocalDensity.current
+                val density = remember(base.density, base.fontScale, st.textScale) {
+                    Density(base.density, base.fontScale * st.textScale.factor)
+                }
+                CompositionLocalProvider(LocalDensity provides density) { content() }
+            } else {
+                content()
+            }
+        },
     )
 }

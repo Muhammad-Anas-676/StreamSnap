@@ -67,6 +67,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -128,6 +132,7 @@ fun SettingsScreen(activity: MainActivity, onBack: () -> Unit) {
     val prefs by Settings.state.collectAsState()
     val items by QueueManager.items.collectAsState()
     var legalOpen by rememberSaveable { mutableStateOf<String?>(null) }
+    var guideOpen by rememberSaveable { mutableStateOf(false) }
 
     // Screen time for the admin: Settings, or Legal while a document is open.
     LaunchedEffect(legalOpen) { ScreenTracker.enter(if (legalOpen != null) "Legal" else "Settings") }
@@ -153,8 +158,8 @@ fun SettingsScreen(activity: MainActivity, onBack: () -> Unit) {
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 32.dp)
         ) {
+            HowItWorksCard(prefs) { guideOpen = true; HowItWorksPill.markSeen() }
             AppearanceSection(prefs)
-            HowItWorksCard(prefs)
             DownloadModeSection(prefs)
             QualitySection(prefs)
             DownloadOptionsSection(prefs, hasScheduled = items.any { it.status == Status.SCHEDULED })
@@ -166,6 +171,7 @@ fun SettingsScreen(activity: MainActivity, onBack: () -> Unit) {
         }
     }
     legalOpen?.let { LegalReader(it, onClose = { legalOpen = null }) }
+    if (guideOpen) HowItWorksGuide(onClose = { guideOpen = false })
 }
 
 /** A row with a title and an expand / collapse arrow. */
@@ -287,7 +293,7 @@ private fun qualityHint(q: String): String = when (q) {
 
 // ============================================================================ how it works (live summary)
 @Composable
-private fun HowItWorksCard(prefs: Prefs) {
+private fun HowItWorksCard(prefs: Prefs, onOpenGuide: () -> Unit) {
     val q = qualityLabel(prefs.defaultQuality)
     val auto = prefs.autoStart
     val fixed = prefs.qualityMode == "fixed"
@@ -306,6 +312,23 @@ private fun HowItWorksCard(prefs: Prefs) {
             Text(tr("How it works now", "ابھی کیسے کام کرتا ہے"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
             Text(text, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(10.dp))
+            // Prominent row that opens the detailed guide (basic to advanced).
+            FilledTonalButton(
+                onClick = onOpenGuide,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    tr3("Open Complete Guide (Basic → Advanced)", "Poori Guide kholein (Basic → Advanced)", "مکمل گائیڈ کھولیں (بنیادی ← ایڈوانس)"),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }

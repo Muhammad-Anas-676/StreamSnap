@@ -1,4 +1,4 @@
-# StreamSnap 2.1.0
+# StreamSnap 2.0
 
 Do apps ek hi project mein:
 
@@ -9,7 +9,6 @@ Do apps ek hi project mein:
 | `:core` | shared: theme, "Made by Anas", Firebase, legal documents | library |
 
 ## Kya naya hai
-- Onboarding hata di gayi: app seedha Sign-in par khulti hai (ya Lock par agar App Lock on ho).
 - Login (Google + email/password), consent screen (Privacy, Terms, Disclaimer, Data and Activity Notice), ban / maintenance / update gate.
 - 4 tabs: Queue, History, Browser, Profile. Settings Profile ke gear icon se khulti hai.
 - Theme: Light (default), Dark, AMOLED, System + 10 accent colours (DataStore). Module: `core/.../theme`.

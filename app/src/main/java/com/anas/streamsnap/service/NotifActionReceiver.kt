@@ -16,6 +16,11 @@ class NotifActionReceiver : BroadcastReceiver() {
             ACTION_RETRY -> { QueueManager.retry(id); Notifier.clearItem(context, id) }
             ACTION_PAUSE_ALL -> QueueManager.pauseAll()
             ACTION_CANCEL_ALL -> QueueManager.cancelAll()
+            ACTION_COPY_ADMIN_MSG -> {
+                val t = intent.getStringExtra("title").orEmpty()
+                val m = intent.getStringExtra("message").orEmpty()
+                com.anas.streamsnap.util.Utils.copyToClipboard(context, t + "\n\n" + m)
+            }
             ACTION_ADD_URL -> {
                 intent.getStringExtra("url")?.let { QueueManager.addLinks(it) }
                 Notifier.clearClipboard(context)
@@ -31,5 +36,6 @@ class NotifActionReceiver : BroadcastReceiver() {
         const val ACTION_PAUSE_ALL = "com.anas.streamsnap.PAUSE_ALL"
         const val ACTION_CANCEL_ALL = "com.anas.streamsnap.CANCEL_ALL"
         const val ACTION_ADD_URL = "com.anas.streamsnap.ADD_URL"
+        const val ACTION_COPY_ADMIN_MSG = "com.anas.streamsnap.COPY_ADMIN_MSG"
     }
 }

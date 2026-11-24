@@ -1,7 +1,11 @@
 package com.anas.streamsnap.util
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.widget.Toast
+import com.anas.streamsnap.data.tr3
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -15,6 +19,15 @@ import java.text.DecimalFormat
 import java.util.Locale
 
 object Utils {
+    /** Copies [text] to the clipboard and shows a short "Copied" toast. Never throws. */
+    fun copyToClipboard(ctx: Context, text: String) {
+        try {
+            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("StreamSnap", text))
+            Toast.makeText(ctx.applicationContext, tr3("Copied", "Copy ho gaya", "کاپی ہو گیا"), Toast.LENGTH_SHORT).show()
+        } catch (_: Throwable) { }
+    }
+
     private val urlRegex = Regex("""(?i)\b((?:https?://|www\.)[^\s<>"'()\[\]{}|\\^`]+)""")
 
     /** Pulls every http(s) link out of free text (one per line, space separated, or mixed with words). */

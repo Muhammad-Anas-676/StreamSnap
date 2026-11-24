@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.anas.streamsnap.core.t
 import com.anas.streamsnap.core.theme.Accents
 import com.anas.streamsnap.core.theme.ThemeManager
+import com.anas.streamsnap.core.theme.TextScale
 import com.anas.streamsnap.core.theme.ThemeMode
 import com.anas.streamsnap.core.theme.bestOn
 
@@ -49,7 +50,7 @@ import com.anas.streamsnap.core.theme.bestOn
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ThemeAppearanceCard(modifier: Modifier = Modifier) {
+fun ThemeAppearanceCard(modifier: Modifier = Modifier, showTextSize: Boolean = false) {
     val st by ThemeManager.state.collectAsState()
     var expanded by rememberSaveable { mutableStateOf(false) }
 
@@ -86,6 +87,26 @@ fun ThemeAppearanceCard(modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            if (showTextSize) {
+                Text(t("Text size", "Text size", "ٹیکسٹ سائز"), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(
+                        TextScale.SMALL to t("Small", "Small", "چھوٹا"),
+                        TextScale.MEDIUM to t("Medium", "Medium", "درمیانہ"),
+                        TextScale.LARGE to t("Large", "Large", "بڑا"),
+                    ).forEach { (sc, label) ->
+                        FilterChip(
+                            selected = st.textScale == sc,
+                            onClick = { ThemeManager.setTextScale(sc) },
+                            label = { Text(label) },
+                            leadingIcon = if (st.textScale == sc) {
+                                { Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) }
+                            } else null,
+                        )
+                    }
+                }
             }
 
             // Accent colour row with expand icon

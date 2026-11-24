@@ -4,6 +4,9 @@
     <!-- INTERNET: sign-in and reading the Firestore data. Nothing else is needed. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- USE_BIOMETRIC / USE_FINGERPRINT: the optional fingerprint unlock of the admin app lock. USE_FINGERPRINT is the older name that Android 8.x phones need. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
 
     <application
         android:name=".AdminApp"

@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import com.anas.streamsnap.core.cloud.CloudUser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,23 +67,6 @@ object ProfileStore {
         if (country.isNotBlank()) e.putString("country", country)
         e.putString("photoUrl", photoUrl).putBoolean("guest", guest)
         if (createdAt > 0) e.putLong("createdAt", createdAt)
-        e.apply()
-        _state.value = read()
-    }
-
-    /**
-     * Sign-in on a phone that does not have the profile yet (fresh install, new phone): the cloud profile is the
-     * truth for name, phone, country and the download counter, so nothing the cloud already knows is lost.
-     * A value that the user typed in the sign-in form right now ([keepName] and so on) stays as typed.
-     * The download counter only ever goes up.
-     */
-    fun mergeFromCloud(remote: CloudUser, keepName: Boolean = false, keepPhone: Boolean = false, keepCountry: Boolean = false) {
-        val e = sp.edit()
-        if (!keepName && remote.name.isNotBlank()) e.putString("name", remote.name)
-        if (!keepPhone && remote.phone.isNotBlank()) e.putString("phone", remote.phone)
-        if (!keepCountry && remote.country.isNotBlank()) e.putString("country", remote.country)
-        if (remote.createdAt > 0 && sp.getLong("createdAt", 0) == 0L) e.putLong("createdAt", remote.createdAt)
-        if (remote.totalDownloads > totalDownloads()) e.putLong("totalDownloads", remote.totalDownloads)
         e.apply()
         _state.value = read()
     }

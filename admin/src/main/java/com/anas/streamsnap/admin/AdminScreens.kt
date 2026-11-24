@@ -70,7 +70,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.anas.streamsnap.core.cloud.AppConfig
@@ -236,17 +235,6 @@ fun UsersScreen(onOpen: (CloudUser) -> Unit) {
         )
         ErrorLine(d.error)
         LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (list.isEmpty()) item {
-                Text(
-                    when {
-                        d.loading && d.users.isEmpty() -> "Loading users..."
-                        q.isNotBlank() -> "No user matches your search"
-                        else -> "No users yet. Accounts appear here after someone signs in to StreamSnap."
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                )
-            }
             items(list, key = { it.uid }) { u ->
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { onOpen(u) },
@@ -592,6 +580,8 @@ fun MoreScreen() {
     var msg by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
     var changePin by remember { mutableStateOf(false) }
+    var setupLock by remember { mutableStateOf(false) }
+    var lockOn by remember { mutableStateOf(AdminLock.lockActive) }
     var bio by remember { mutableStateOf(AdminLock.biometricOn) }
     var timeout by remember { mutableIntStateOf(AdminLock.timeoutSec) }
 
@@ -680,31 +670,54 @@ fun MoreScreen() {
                 }
             }
 
-            ChartCard("Security", subtitle = "App lock for the admin app") {
+            ChartCard("Security", subtitle = "Optional PIN lock for the admin app") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = { changePin = true }, modifier = Modifier.weight(1f).height(48.dp)) { Text("Change PIN") }
-                        Button(onClick = { AdminLock.lockNow() }, modifier = Modifier.weight(1f).height(48.dp)) { Text("Lock now") }
-                    }
-                    val bioOk = remember { AdminLock.biometricAvailable(ctx) }
+                    // Master switch: the lock is off until it is turned on here.
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Fingerprint unlock", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-                            Text(if (bioOk) "Unlock with a fingerprint instead of typing the PIN" else "No fingerprint is set up on this phone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("App Lock (PIN)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                            Text("Ask for a 4-digit PIN when the app opens", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(checked = bio && bioOk, enabled = bioOk, onCheckedChange = { bio = it; AdminLock.biometricOn = it })
+                        Switch(
+                            checked = lockOn,
+                            onCheckedChange = { on ->
+                                if (!on) {
+                                    AdminLock.appLockEnabled = false
+                                    lockOn = false
+                                } else if (AdminLock.hasPin) {
+                                    AdminLock.appLockEnabled = true
+                                    lockOn = true
+                                } else {
+                                    setupLock = true // the switch turns on only after the PIN was created
+                                }
+                            },
+                        )
                     }
-                    Text("Lock after leaving the app for", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(0 to "Immediately", 60 to "1 minute", 300 to "5 minutes").forEach { (sec, label) ->
-                            FilterChip(selected = timeout == sec, onClick = { timeout = sec; AdminLock.timeoutSec = sec }, label = { Text(label) })
+                    if (lockOn) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(onClick = { changePin = true }, modifier = Modifier.weight(1f).height(48.dp)) { Text("Change PIN") }
+                            Button(onClick = { AdminLock.lockNow() }, modifier = Modifier.weight(1f).height(48.dp)) { Text("Lock now") }
+                        }
+                        val bioOk = remember { AdminLock.biometricAvailable(ctx) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Fingerprint unlock", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                                Text(if (bioOk) "Unlock with a fingerprint instead of typing the PIN" else "No fingerprint is set up on this phone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = bio && bioOk, enabled = bioOk, onCheckedChange = { bio = it; AdminLock.biometricOn = it })
+                        }
+                        Text("Lock after leaving the app for", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(0 to "Immediately", 60 to "1 minute", 300 to "5 minutes").forEach { (sec, label) ->
+                                FilterChip(selected = timeout == sec, onClick = { timeout = sec; AdminLock.timeoutSec = sec }, label = { Text(label) })
+                            }
                         }
                     }
                 }
             }
 
             Text("Appearance", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-            ThemeAppearanceCard()
+            ThemeAppearanceCard(showTextSize = true)
             Text("About", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
             Card(
                 Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
@@ -712,7 +725,7 @@ fun MoreScreen() {
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("StreamSnap Admin  v1.1.0", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Text("StreamSnap Admin  v1.2.0", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     Text("Private tool for the StreamSnap developer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(10.dp))
                     MadeByAnasSignature()
@@ -729,7 +742,23 @@ fun MoreScreen() {
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
         ) {
             androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                AdminPinSetup { changePin = false }
+                AdminPinSetup(onCancel = { changePin = false }) { changePin = false }
+            }
+        }
+    }
+
+    // Turning App Lock on with no PIN yet: create the PIN first. Cancel leaves the switch off.
+    if (setupLock) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { setupLock = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            androidx.compose.material3.Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                AdminPinSetup(onCancel = { setupLock = false }) {
+                    AdminLock.appLockEnabled = true
+                    lockOn = true
+                    setupLock = false
+                }
             }
         }
     }

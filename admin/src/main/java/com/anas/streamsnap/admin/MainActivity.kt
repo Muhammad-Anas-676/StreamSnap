@@ -15,7 +15,7 @@ class MainActivity : FragmentActivity() {
         // The admin app shows user data: no screenshots and no preview in the recent apps list.
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
-            AppTheme { AdminRoot(this) }
+            AppTheme(applyTextScale = true) { AdminRoot(this) } // text size (Small / Medium / Large) applies in the admin app
         }
     }
 

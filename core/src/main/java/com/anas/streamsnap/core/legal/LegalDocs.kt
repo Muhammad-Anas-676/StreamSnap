@@ -129,7 +129,7 @@ object LegalDocs {
         )
         else -> listOf(
             s("StreamSnap", "Capture any stream, instantly. StreamSnap saves videos and audio from many websites to your phone, with a queue, history, a built-in browser and quality choices."),
-            s("Version", "StreamSnap 2.1.0"),
+            s("Version", "StreamSnap 2.0"),
             s("Developer", "Made by Anas, a solo developer from Karachi, Pakistan."),
             s("Built with", "yt-dlp (download engine), FFmpeg (conversion), Media3 (player), Coil (images), Google Firebase (accounts) and Jetpack Compose with Material 3. The script font Dancing Script is used under the SIL Open Font License."),
             s("Thank you", "Thank you for using StreamSnap. Please use it responsibly and respect the work of creators."),
@@ -185,7 +185,7 @@ object LegalDocs {
         )
         else -> listOf(
             s("StreamSnap", "Capture any stream, instantly. StreamSnap bohat si websites se video aur audio aapke phone mein save karti hai, queue, history, built-in browser aur quality ke intikhab ke sath."),
-            s("Version", "StreamSnap 2.1.0"),
+            s("Version", "StreamSnap 2.0"),
             s("Developer", "Made by Anas, Karachi, Pakistan ke ek akele developer."),
             s("Kis se bana", "yt-dlp (download engine), FFmpeg (conversion), Media3 (player), Coil (images), Google Firebase (accounts) aur Jetpack Compose ke sath Material 3. Script font Dancing Script SIL Open Font License ke tahat istemal hua hai."),
             s("Shukriya", "StreamSnap istemal karne ka shukriya. Zimmedari se istemal karein aur banane walon ki mehnat ka ehtram karein."),
@@ -241,7 +241,7 @@ object LegalDocs {
         )
         else -> listOf(
             s("اسٹریم اسنیپ", "Capture any stream, instantly. اسٹریم اسنیپ بہت سی ویب سائٹس سے ویڈیو اور آڈیو آپ کے فون میں محفوظ کرتی ہے، قطار، ہسٹری، بلٹ اِن براؤزر اور کوالٹی کے انتخاب کے ساتھ۔"),
-            s("ورژن", "StreamSnap 2.1.0"),
+            s("ورژن", "StreamSnap 2.0"),
             s("ڈیولپر", "Made by Anas، کراچی، پاکستان کے ایک اکیلے ڈیولپر۔"),
             s("کس سے بنی", "yt-dlp (ڈاؤن لوڈ انجن)، FFmpeg (کنورژن)، Media3 (پلیئر)، Coil (تصاویر)، گوگل فائر بیس (اکاؤنٹس) اور جیٹ پیک کمپوز کے ساتھ میٹیریل 3۔ اسکرپٹ فونٹ Dancing Script، SIL اوپن فونٹ لائسنس کے تحت استعمال ہوا ہے۔"),
             s("شکریہ", "اسٹریم اسنیپ استعمال کرنے کا شکریہ۔ ذمہ داری سے استعمال کریں اور بنانے والوں کی محنت کا احترام کریں۔"),

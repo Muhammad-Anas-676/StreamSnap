@@ -107,6 +107,7 @@ fun HomeScreen(activity: MainActivity) {
     var confirmDelete by remember { mutableStateOf<DownloadItem?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     var showSaved by remember { mutableStateOf(false) }
+    var showGuide by rememberSaveable { mutableStateOf(false) }
     // Select several (both sections)
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -160,6 +161,7 @@ fun HomeScreen(activity: MainActivity) {
         dragOffset -= delta
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         AnnouncementBanner()
         HomeHeader()
@@ -358,6 +360,16 @@ fun HomeScreen(activity: MainActivity) {
         }
     }
 
+    // First-time-only "How it works" pill, bottom-end, just above the bottom navigation bar.
+    if (HowItWorksPill.visible() && !selecting && !showGuide) {
+        HowItWorksPillButton(
+            Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp),
+        ) { showGuide = true; HowItWorksPill.markSeen() }
+    }
+    } // end of the Box that holds the screen and the pill
+
+    if (showGuide) HowItWorksGuide(onClose = { showGuide = false })
+
     if (showSaved) SavedLinksDialog { showSaved = false }
 
     if (confirmBulk) {
@@ -432,7 +444,7 @@ private fun HomeHeader() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Image(
                 painterResource(R.drawable.streamsnap_logo), null,
-                Modifier.size(38.dp),
+                Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)),
             )
             Text(
                 "StreamSnap", modifier = Modifier.weight(1f),
@@ -443,8 +455,7 @@ private fun HomeHeader() {
             Surface(
                 onClick = {
                     Settings.update { it.copy(autoStart = !it.autoStart) }
-                    // Same as Settings: items that were only waiting for a tap start by themselves in Automatic mode.
-                    QueueManager.onModeChanged()
+                    QueueManager.recheck()
                 },
                 shape = RoundedCornerShape(50),
                 color = MaterialTheme.colorScheme.primaryContainer,
@@ -495,8 +506,6 @@ private fun HomeHeader() {
                             text = { Text(tr3("All videos: ", "Tamam videos: ", "تمام ویڈیوز: ") + label) },
                             onClick = {
                                 Settings.update { it.copy(qualityMode = "fixed", defaultQuality = k, cvOn = false) }
-                                QueueManager.applyDefaultQuality(k)
-                                QueueManager.onModeChanged()
                                 qMenu = false
                             },
                         )
@@ -718,7 +727,7 @@ private fun DownloadedEmpty() {
     ) {
         Image(
             painterResource(R.drawable.streamsnap_logo), null,
-            Modifier.size(84.dp),
+            Modifier.size(84.dp).clip(RoundedCornerShape(22.dp)),
         )
         Spacer(Modifier.height(16.dp))
         Text(tr("No finished downloads yet", "ابھی کوئی مکمل ڈاؤن لوڈ نہیں"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -738,7 +747,7 @@ private fun EmptyState(auto: Boolean) {
     ) {
         Image(
             painterResource(R.drawable.streamsnap_logo), null,
-            Modifier.size(84.dp),
+            Modifier.size(84.dp).clip(RoundedCornerShape(22.dp)),
         )
         Spacer(Modifier.height(16.dp))
         Text(tr("Nothing in the queue", "قطار خالی ہے"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

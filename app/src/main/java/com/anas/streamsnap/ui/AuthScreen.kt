@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,15 +34,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -55,7 +57,6 @@ import com.anas.streamsnap.core.cloud.AuthRepo
 import com.anas.streamsnap.data.tr3
 import com.anas.streamsnap.session.Session
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 /** Sign in, sign up and password reset. Google sign-in is offered on both. */
 @Composable
@@ -63,9 +64,9 @@ fun AuthScreen(activity: MainActivity) {
     var mode by rememberSaveable { mutableIntStateOf(0) } // 0 sign in, 1 sign up, 2 reset password
     var name by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
-    var phone by rememberSaveable { mutableStateOf("") }
-    var country by rememberSaveable { mutableStateOf(Locale.getDefault().displayCountry) }
-    var countryEdited by rememberSaveable { mutableStateOf(false) }
+    // Country code picker + local number (one field). The country starts from the phone's region (Pakistan if unknown).
+    var phoneIso by rememberSaveable { mutableStateOf(CountryCodes.default().iso) }
+    var phoneLocal by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var showPw by rememberSaveable { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -80,9 +81,10 @@ fun AuthScreen(activity: MainActivity) {
         if (password.length < 6) return tr3("Password must be at least 6 characters.", "Password kam az kam 6 huroof ka ho.", "پاس ورڈ کم از کم 6 حروف کا ہو۔")
         if (mode == 1) {
             if (name.trim().length < 2) return tr3("Enter your name.", "Apna naam likhein.", "اپنا نام لکھیں۔")
-            val digits = phone.filter { it.isDigit() }
-            if (digits.length < 7 || digits.length > 15) return tr3("Enter a valid phone number.", "Durust phone number likhein.", "درست فون نمبر لکھیں۔")
-            if (country.trim().length < 2) return tr3("Enter your country.", "Apna mulk likhein.", "اپنا ملک لکھیں۔")
+            val total = (CountryCodes.byIso(phoneIso)?.dialDigits.orEmpty() + phoneLocal.filter { it.isDigit() }.trimStart('0')).length
+            if (phoneLocal.filter { it.isDigit() }.length < 4 || total < 7 || total > 15) {
+                return tr3("Enter a valid phone number.", "Durust phone number likhein.", "درست فون نمبر لکھیں۔")
+            }
         }
         return ""
     }
@@ -98,7 +100,12 @@ fun AuthScreen(activity: MainActivity) {
                     .onSuccess { Session.onSignedIn(it, "email") }
                     .onFailure { error = it.message ?: "" }
                 1 -> AuthRepo.signUp(email, password, name)
-                    .onSuccess { Session.onSignedIn(it, "email", name.trim(), phone.trim(), country.trim()) }
+                    .onSuccess {
+                        // "+92 3001234567" and "Pakistan": same Firestore fields as before.
+                        val c = CountryCodes.byIso(phoneIso) ?: CountryCodes.default()
+                        val number = phoneLocal.filter { ch -> ch.isDigit() }.trimStart('0')
+                        Session.onSignedIn(it, "email", name.trim(), c.dialCode + " " + number, c.name)
+                    }
                     .onFailure { error = it.message ?: "" }
                 else -> AuthRepo.sendReset(email)
                     .onSuccess {
@@ -140,7 +147,7 @@ fun AuthScreen(activity: MainActivity) {
         Spacer(Modifier.height(12.dp))
         Image(
             painterResource(R.drawable.streamsnap_logo), null,
-            Modifier.size(84.dp),
+            Modifier.size(84.dp).clip(RoundedCornerShape(22.dp)),
         )
         Spacer(Modifier.height(12.dp))
         Text("StreamSnap", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
@@ -167,20 +174,9 @@ fun AuthScreen(activity: MainActivity) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             )
             if (mode == 1) {
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = {
-                        phone = it.filter { c -> c.isDigit() || c == '+' || c == ' ' }
-                        // The country follows the international prefix (+92 Pakistan, +1 United States ...) until the user edits it.
-                        if (!countryEdited) CountryCodes.fromPhone(phone)?.let { c -> country = c }
-                    },
-                    singleLine = true, modifier = Modifier.fillMaxWidth(),
-                    label = { Text(tr3("Phone number", "Phone number", "فون نمبر")) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                )
-                OutlinedTextField(
-                    value = country, onValueChange = { country = it; countryEdited = true }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                    label = { Text(tr3("Country", "Mulk", "ملک")) },
+                CountryPhoneField(
+                    iso = phoneIso, local = phoneLocal,
+                    onChange = { i, l -> phoneIso = i; phoneLocal = l },
                 )
             }
             if (mode != 2) {

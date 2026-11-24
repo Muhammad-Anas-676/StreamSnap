@@ -1,6 +1,5 @@
 package com.anas.streamsnap.admin
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,20 +17,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.Lifecycle
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -60,7 +63,7 @@ private fun PinPad(
         Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
-        Image(painterResource(R.drawable.admin_logo), contentDescription = "StreamSnap Admin", modifier = Modifier.size(72.dp))
+        Icon(Icons.Filled.Lock, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(12.dp))
         Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
@@ -108,15 +111,26 @@ private fun Key(label: String, enabled: Boolean, onClick: () -> Unit) {
     ) { Text(label, fontSize = 26.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface) }
 }
 
-/** The lock screen. Fingerprint is offered first when it is turned on. */
+/** The lock screen. Fingerprint is offered first when it is turned on; the PIN pad always works. */
 @Composable
 fun AdminLockScreen(activity: MainActivity) {
     var error by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf("") }
+    var checking by remember { mutableStateOf(false) }
     var remain by remember { mutableIntStateOf(AdminLock.lockRemainingSec()) }
     val bioReady = AdminLock.biometricOn && AdminLock.biometricAvailable(activity)
+    val scope = rememberCoroutineScope()
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 
-    LaunchedEffect(Unit) {
-        if (bioReady) AdminLock.promptBiometric(activity) { AdminLock.unlock() }
+    // The prompt opens only once the screen is RESUMED and has window focus (the fragment manager is ready then),
+    // after a short pause for slow phones. Never directly at first composition.
+    LaunchedEffect(bioReady) {
+        if (!bioReady) return@LaunchedEffect
+        lifecycleOwner.lifecycle.currentStateFlow.first { it == Lifecycle.State.RESUMED }
+        var waited = 0
+        while (!activity.hasWindowFocus() && waited < 30) { delay(100); waited++ }
+        delay(300)
+        AdminLock.promptBiometric(activity, onSuccess = { AdminLock.unlock() }, onMessage = { note = it })
     }
     LaunchedEffect(Unit) {
         while (true) { remain = AdminLock.lockRemainingSec(); delay(1000) }
@@ -126,17 +140,25 @@ fun AdminLockScreen(activity: MainActivity) {
         message = when {
             remain > 0 -> "Too many wrong tries. Wait $remain s."
             error -> "Wrong PIN. Try again."
+            note.isNotEmpty() -> note
             else -> "Enter your 4-digit PIN"
         },
         isError = error || remain > 0,
-        enabled = remain == 0,
+        enabled = remain == 0 && !checking,
         onComplete = { pin ->
-            if (!AdminLock.check(pin)) { error = true; remain = AdminLock.lockRemainingSec() } else error = false
+            checking = true
+            scope.launch {
+                val ok = AdminLock.check(pin) // PBKDF2 runs off the main thread
+                error = !ok
+                remain = AdminLock.lockRemainingSec()
+                checking = false
+            }
         },
         below = {
             if (bioReady) {
                 Box(
-                    Modifier.size(56.dp).clip(CircleShape).clickable { AdminLock.promptBiometric(activity) { AdminLock.unlock() } }
+                    Modifier.size(56.dp).clip(CircleShape)
+                        .clickable { AdminLock.promptBiometric(activity, onSuccess = { AdminLock.unlock() }, onMessage = { note = it }) }
                         .semantics { contentDescription = "Use fingerprint" },
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Filled.Fingerprint, null, Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary) }
@@ -145,11 +167,13 @@ fun AdminLockScreen(activity: MainActivity) {
     )
 }
 
-/** Creates or changes the PIN: enter it twice. */
+/** Creates or changes the PIN: enter it twice. [onCancel] (when given) shows a Cancel button. */
 @Composable
-fun AdminPinSetup(onDone: () -> Unit) {
+fun AdminPinSetup(onCancel: (() -> Unit)? = null, onDone: () -> Unit) {
     var first by remember { mutableStateOf<String?>(null) }
     var mismatch by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     PinPad(
         title = if (first == null) "Create a PIN" else "Repeat the PIN",
         message = when {
@@ -157,12 +181,19 @@ fun AdminPinSetup(onDone: () -> Unit) {
             first == null -> "Choose a 4-digit PIN that protects the admin app"
             else -> "Enter the same PIN once more"
         },
-        isError = mismatch, enabled = true,
+        isError = mismatch, enabled = !saving,
         onComplete = { pin ->
             val f = first
             if (f == null) { first = pin; mismatch = false }
-            else if (f == pin) { AdminLock.setPin(pin); onDone() }
-            else { first = null; mismatch = true }
+            else if (f == pin) {
+                saving = true
+                scope.launch { AdminLock.setPin(pin); saving = false; onDone() } // hashing runs off the main thread
+            } else { first = null; mismatch = true }
+        },
+        below = {
+            if (onCancel != null) {
+                androidx.compose.material3.TextButton(onClick = onCancel, enabled = !saving) { Text("Cancel") }
+            }
         },
     )
 }

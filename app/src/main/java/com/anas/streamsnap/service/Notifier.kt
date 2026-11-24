@@ -254,16 +254,26 @@ object Notifier {
         post(ctx, ID_STORAGE, b.build())
     }
 
-    /** A message the admin sent to this user. Always shown (high priority), under the team's name. */
+    /**
+     * A message the admin sent to this user. Always shown (high priority), under the team's name.
+     * The shade cannot select text, so there is a "Copy text" button; tapping the notification opens the app,
+     * which shows the full message in a dialog where the text can be selected.
+     */
     fun adminMessage(ctx: Context, id: String, title: String, message: String) {
+        val t = title.take(200)
+        val m = message.take(1500)
+        val copy = Intent(ctx, NotifActionReceiver::class.java).setAction(NotifActionReceiver.ACTION_COPY_ADMIN_MSG)
+            .putExtra("id", id).putExtra("title", t).putExtra("message", m)
+        val copyPi = PendingIntent.getBroadcast(ctx, ("copy" + id).hashCode(), copy, flags())
         val b = base(ctx, CH_ADMIN)
             .setContentTitle("Message from StreamSnap Team")
-            .setContentText(title)
-            .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle("Message from StreamSnap Team").bigText(title + "\n\n" + message))
+            .setContentText(t)
+            .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle("Message from StreamSnap Team").bigText(t + "\n\n" + m))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
             .setContentIntent(openApp(ctx, "queue"))
+            .addAction(0, tr("Copy text", "کاپی ٹیکسٹ"), copyPi)
         post(ctx, 0x7A000 + (id.hashCode() and 0xFFF), b.build())
     }
 

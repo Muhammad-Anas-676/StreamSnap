@@ -14,8 +14,7 @@ object ErrorKinds {
     fun classify(text: String): String {
         val s = text.lowercase()
         return when {
-            listOf("no space left", "enospc", "not enough space", "insufficient storage", "storage full", "disk full", "disk quota",
-                "eacces", "permission denied", "read-only file system")
+            listOf("no space left", "enospc", "not enough space", "storage", "eacces", "permission denied", "read-only file system", "disk")
                 .any { it in s } -> STORAGE
             listOf("unable to resolve host", "timed out", "timeout", "connection reset", "connection refused", "network is unreachable",
                 "no internet", "ssl", "handshake", "unknownhost", "sockettimeout", "econnreset", "failed to connect", "connectexception")

@@ -3,6 +3,7 @@ package com.anas.streamsnap.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,20 +14,32 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,27 +53,31 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.anas.streamsnap.core.cloud.ScreenTracker
+import com.anas.streamsnap.data.Settings
 import com.anas.streamsnap.data.Tr
 import com.anas.streamsnap.data.tr
 import com.anas.streamsnap.data.tr3
@@ -69,10 +86,12 @@ import com.anas.streamsnap.engine.QueueManager
 import com.anas.streamsnap.session.Session
 import com.anas.streamsnap.util.Utils
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 
 @Composable
 fun AppRoot(activity: MainActivity) {
+    val prefs by Settings.state.collectAsState()
     val locked by activity.locked.collectAsState()
 
     val user by Session.user.collectAsState()
@@ -82,9 +101,9 @@ fun AppRoot(activity: MainActivity) {
     val permsDone by Session.permissionsDone.collectAsState()
     val cloud = Session.cloudOn
 
-    // 2 lock, 4 sign in, 5 consent, 6 blocked, 7 permissions, 3 the app
-    // There is no onboarding or splash stage: the first screen is the lock screen (if on) or sign-in.
-    // Permissions are asked once, after sign-in and consent.
+    // 2 lock, 4 sign in, 5 consent, 6 blocked, 7 permission pop-ups, 3 the app
+    // No splash and no onboarding: the first screen is the sign-in screen (unless the app is PIN-locked or already signed in).
+    // First-time order: sign in -> consent -> notification pop-up -> storage pop-up -> Queue.
     val stage = when {
         locked -> 2
         cloud && user == null -> 4
@@ -93,10 +112,6 @@ fun AppRoot(activity: MainActivity) {
         !permsDone -> 7
         else -> 3
     }
-
-    // The clipboard may be scanned only on the real app screens (past lock, sign-in, consent, gate and permissions).
-    LaunchedEffect(stage) { activity.setMainReady(stage == 3) }
-    DisposableEffect(Unit) { onDispose { activity.setMainReady(false) } }
 
     // Once signed in and consented: tell the cloud we are here, check ban / maintenance / update, flush on leaving.
     LaunchedEffect(user?.uid, consented) {
@@ -111,19 +126,28 @@ fun AppRoot(activity: MainActivity) {
     ) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             notices.firstOrNull()?.let { n ->
+                val ctx = androidx.compose.ui.platform.LocalContext.current
                 AlertDialog(
                     onDismissRequest = { Session.dismissNotice(n.id) },
                     title = {
-                        Column {
-                            Text(
-                                "Message from StreamSnap Team", style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(n.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        // Press and hold on the text to select and copy any part of it.
+                        SelectionContainer {
+                            Column {
+                                Text(
+                                    "Message from StreamSnap Team", style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(n.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            }
                         }
                     },
-                    text = { Text(n.message) },
+                    text = { SelectionContainer { Text(n.message) } },
                     confirmButton = { TextButton(onClick = { Session.dismissNotice(n.id) }) { Text(tr3("OK", "Theek hai", "ٹھیک ہے")) } },
+                    dismissButton = {
+                        TextButton(onClick = { Utils.copyToClipboard(ctx, n.title + "\n\n" + n.message) }) {
+                            Text(tr3("Copy", "Copy", "کاپی"))
+                        }
+                    },
                 )
             }
             Crossfade(targetState = stage, animationSpec = tween(350), label = "stage") { s ->
@@ -132,7 +156,7 @@ fun AppRoot(activity: MainActivity) {
                     4 -> AuthScreen(activity)
                     5 -> ConsentScreen()
                     6 -> gate?.let { GateScreen(it) }
-                    7 -> PermissionsScreen { Session.completePermissions() }
+                    7 -> PermissionPopups { Session.completePermissions() }
                     else -> MainScaffold(activity)
                 }
             }

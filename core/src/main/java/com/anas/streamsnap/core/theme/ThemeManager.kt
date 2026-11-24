@@ -25,9 +25,19 @@ enum class ThemeMode(val key: String) {
     }
 }
 
+/** Text size choice. Applied only by apps that ask for it (the admin app); the user app ignores it. */
+enum class TextScale(val key: String, val factor: Float) {
+    SMALL("small", 0.88f), MEDIUM("medium", 1.0f), LARGE("large", 1.16f);
+
+    companion object {
+        fun from(key: String?): TextScale = values().firstOrNull { it.key == key } ?: MEDIUM
+    }
+}
+
 data class ThemeState(
     val mode: ThemeMode = ThemeMode.LIGHT, // Light is the default on first launch
     val accent: Int = 0,                    // index in Accents.list
+    val textScale: TextScale = TextScale.MEDIUM,
 )
 
 private val Context.themeStore: DataStore<Preferences> by preferencesDataStore(name = "app_theme")
@@ -39,6 +49,7 @@ private val Context.themeStore: DataStore<Preferences> by preferencesDataStore(n
 object ThemeManager {
     private val KEY_MODE = stringPreferencesKey("mode")
     private val KEY_ACCENT = intPreferencesKey("accent")
+    private val KEY_TEXT = stringPreferencesKey("text_scale")
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(ThemeState())
@@ -57,6 +68,7 @@ object ThemeManager {
             _state.value = ThemeState(
                 mode = ThemeMode.from(p[KEY_MODE]),
                 accent = (p[KEY_ACCENT] ?: 0).coerceIn(0, Accents.list.size - 1),
+                textScale = TextScale.from(p[KEY_TEXT]),
             )
         }
     }
@@ -70,5 +82,10 @@ object ThemeManager {
         val i = index.coerceIn(0, Accents.list.size - 1)
         _state.value = _state.value.copy(accent = i)
         scope.launch { appCtx.themeStore.edit { it[KEY_ACCENT] = i } }
+    }
+
+    fun setTextScale(scale: TextScale) {
+        _state.value = _state.value.copy(textScale = scale)
+        scope.launch { appCtx.themeStore.edit { it[KEY_TEXT] = scale.key } }
     }
 }

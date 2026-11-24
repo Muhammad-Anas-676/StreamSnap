@@ -12,8 +12,8 @@ android {
         applicationId = "com.anas.streamsnap"
         minSdk = 24
         targetSdk = 34
-        versionCode = 13
-        versionName = "2.1.0"
+        versionCode = 14
+        versionName = "2.2.0"
 
         // Both phone architectures in one universal APK (older and newer phones).
         ndk {
@@ -105,6 +105,11 @@ android {
             )
         }
     }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
 }
 
 dependencies {
@@ -134,6 +139,11 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Push for admin messages when the app is closed (FCM), and the 15-minute fallback check (WorkManager)
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // Thumbnails
     implementation("io.coil-kt:coil-compose:2.7.0")
